@@ -1,15 +1,6 @@
 #!/usr/bin/env bash
-# picoBird Pro — Pi 5 full setup script
+# picoBird Pro — Pi 5 setup wizard
 # Run as root on a fresh Raspberry Pi OS Lite (64-bit) image.
-#
-# Boot sequence installed:
-#   hostapd + dnsmasq       — WiFi AP 'picoBirdPro'
-#   picobird-pre.service    — one-shot DB init + taxonomy sync
-#   picobird-pro.service    — Flask/Gunicorn API on :5000
-#   picobird-vitals.service — e-ink dashboard (30 s refresh)
-#   picobird-button.service — physical GPIO reset button watcher
-#   /etc/profile.d          — admin console on physical console login
-
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -18,74 +9,196 @@ REPO_DIR="$(dirname "$SCRIPT_DIR")"
 PROJECT_DIR="/opt/picobird-pro"
 DATA_DIR="/var/lib/picobird-pro"
 SERVICE_USER="picobird"
-
-AP_SSID="picoBirdPro"
-AP_PASS="fieldguide"
-AP_IP="192.168.4.1"
 WIFI_IF="wlan0"
 
-echo "====================================================="
-echo " picoBird Pro — Pi 5 setup"
-echo "====================================================="
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+ask() {
+    # ask <variable> <prompt> [default]
+    local var="$1" prompt="$2" default="${3:-}"
+    while true; do
+        if [ -n "$default" ]; then
+            read -rp "$prompt [$default]: " value
+            value="${value:-$default}"
+        else
+            read -rp "$prompt: " value
+        fi
+        if [ -n "$value" ]; then
+            eval "$var=\"$value\""
+            return
+        fi
+        echo "  This field is required."
+    done
+}
+
+ask_optional() {
+    local var="$1" prompt="$2" default="${3:-}"
+    if [ -n "$default" ]; then
+        read -rp "$prompt [$default]: " value
+        eval "$var=\"${value:-$default}\""
+    else
+        read -rp "$prompt (leave blank to skip): " value
+        eval "$var=\"$value\""
+    fi
+}
+
+ask_secret() {
+    # Like ask but hides input
+    local var="$1" prompt="$2"
+    while true; do
+        read -rsp "$prompt: " value
+        echo
+        if [ -n "$value" ]; then
+            eval "$var=\"$value\""
+            return
+        fi
+        echo "  This field is required."
+    done
+}
+
+print_header() {
+    echo ""
+    echo "====================================================="
+    echo " $1"
+    echo "====================================================="
+    echo ""
+}
+
+# ---------------------------------------------------------------------------
+# Welcome
+# ---------------------------------------------------------------------------
+clear
+print_header "picoBird Pro — Pi 5 Setup Wizard"
+cat <<'EOF'
+Welcome! This wizard will set up your Pi 5 as a picoBird Pro
+field guide server. It will:
+
+  • Create a WiFi hotspot the PicoCalc connects to
+  • Install the picoBird Pro API server
+  • Load the full eBird species database (~17,000 species)
+  • Set up BirdNET sound identification
+  • Configure everything to start automatically on boot
+
+This will take about 10-20 minutes depending on your
+internet connection speed.
+
+Press Enter to continue, or Ctrl+C to cancel.
+EOF
+read -r
+
+# ---------------------------------------------------------------------------
+# Gather settings
+# ---------------------------------------------------------------------------
+print_header "Step 1 of 3 — eBird API Key"
+cat <<'EOF'
+picoBird Pro uses the eBird API to load bird species data.
+A free API key is required.
+
+To get your key:
+  1. Create a free account at https://ebird.org
+  2. Visit https://ebird.org/api/keygen
+  3. Copy the key shown on that page
+
+EOF
+ask EBIRD_API_KEY "Enter your eBird API key"
+
+print_header "Step 2 of 3 — WiFi Hotspot Settings"
+cat <<'EOF'
+The Pi 5 will create a WiFi hotspot that your PicoCalc
+connects to in the field. You can use the defaults below
+or choose your own name and password.
+
+EOF
+ask AP_SSID "Hotspot name (SSID)" "picoBirdPro"
+ask AP_PASS "Hotspot password (min 8 characters)" "fieldguide"
+AP_IP="192.168.4.1"
+
+print_header "Step 3 of 3 — Confirm Settings"
+cat <<EOF
+Ready to install with these settings:
+
+  eBird API key : ${EBIRD_API_KEY:0:6}****** (hidden for security)
+  WiFi hotspot  : $AP_SSID
+  WiFi password : $AP_PASS
+  Pi 5 IP       : $AP_IP
+
+EOF
+read -rp "Proceed with installation? [Y/n]: " confirm
+confirm="${confirm:-Y}"
+if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+    echo "Installation cancelled."
+    exit 0
+fi
 
 # ---------------------------------------------------------------------------
 echo ""
 echo "==> [1/9] Installing system packages"
+echo "    (This may take a few minutes...)"
 # ---------------------------------------------------------------------------
 apt-get update -qq
 apt-get install -y --no-install-recommends \
     python3 python3-pip python3-venv \
+    python3-rpi.gpio python3-spidev \
     hostapd dnsmasq \
     git ffmpeg \
-    libatlas-base-dev \
-    libopenjp2-7 libjpeg-dev libfreetype6-dev \
-    fonts-dejavu-core \
-    python3-rpi.gpio python3-spidev
+    libopenblas-dev \
+    libopenjp2-7 libjpeg-dev libfreetype-dev \
+    fonts-dejavu-core
+echo "    Done."
 
 # ---------------------------------------------------------------------------
 echo ""
-echo "==> [2/9] Creating service user '$SERVICE_USER'"
+echo "==> [2/9] Creating service user"
 # ---------------------------------------------------------------------------
 id -u "$SERVICE_USER" &>/dev/null || useradd -r -s /sbin/nologin "$SERVICE_USER"
 usermod -aG spi,gpio "$SERVICE_USER" 2>/dev/null || true
+echo "    Done."
 
 # ---------------------------------------------------------------------------
 echo ""
 echo "==> [3/9] Setting up project directory"
 # ---------------------------------------------------------------------------
-mkdir -p "$PROJECT_DIR" "$DATA_DIR"
+mkdir -p "$PROJECT_DIR/setup" "$DATA_DIR"
 rsync -a --delete "$REPO_DIR/server/" "$PROJECT_DIR/server/"
 rsync -a "$REPO_DIR/setup/preflight.py" "$PROJECT_DIR/setup/preflight.py"
 chown -R "$SERVICE_USER:$SERVICE_USER" "$PROJECT_DIR" "$DATA_DIR"
+echo "    Done."
 
 # ---------------------------------------------------------------------------
 echo ""
 echo "==> [4/9] Installing Python dependencies"
+echo "    (This may take a few minutes...)"
 # ---------------------------------------------------------------------------
-python3 -m venv "$PROJECT_DIR/venv"
+if [ ! -f "$PROJECT_DIR/venv/bin/python" ]; then
+    python3 -m venv --system-site-packages "$PROJECT_DIR/venv"
+fi
 "$PROJECT_DIR/venv/bin/pip" install --upgrade pip -q
 "$PROJECT_DIR/venv/bin/pip" install \
     flask>=3.0 \
     requests>=2.31 \
     gunicorn>=21.2 \
-    RPi.GPIO \
-    spidev \
     Pillow -q
+echo "    Done."
 
 # ---------------------------------------------------------------------------
 echo ""
 echo "==> [5/9] Installing BirdNET-Analyzer"
+echo "    (This can take 5-10 minutes on first install...)"
 # ---------------------------------------------------------------------------
 if [ ! -d /opt/BirdNET-Analyzer ]; then
     git clone --depth 1 https://github.com/kahst/BirdNET-Analyzer /opt/BirdNET-Analyzer
-    "$PROJECT_DIR/venv/bin/pip" install -r /opt/BirdNET-Analyzer/requirements.txt -q
 else
-    echo "    Already installed, skipping clone."
+    echo "    Already installed, skipping download."
 fi
+"$PROJECT_DIR/venv/bin/pip" install /opt/BirdNET-Analyzer -q || \
+    echo "    Warning: BirdNET install had errors — sound ID may not work."
+echo "    Done."
 
 # ---------------------------------------------------------------------------
 echo ""
-echo "==> [6/9] Configuring WiFi Access Point (hostapd + dnsmasq)"
+echo "==> [6/9] Configuring WiFi hotspot"
 # ---------------------------------------------------------------------------
 if ! grep -q "interface $WIFI_IF" /etc/dhcpcd.conf 2>/dev/null; then
     cat >> /etc/dhcpcd.conf <<EOF
@@ -121,22 +234,22 @@ interface=$WIFI_IF
 dhcp-range=192.168.4.2,192.168.4.20,255.255.255.0,24h
 EOF
 
-# Enable SPI for the e-ink display
 if ! grep -q "^dtparam=spi=on" /boot/firmware/config.txt 2>/dev/null; then
     echo "dtparam=spi=on" >> /boot/firmware/config.txt
-    echo "    SPI enabled in config.txt (reboot required)"
 fi
+echo "    Done."
 
 # ---------------------------------------------------------------------------
 echo ""
-echo "==> [7/9] Enabling hostapd + dnsmasq"
+echo "==> [7/9] Enabling hotspot services"
 # ---------------------------------------------------------------------------
 systemctl unmask hostapd 2>/dev/null || true
 systemctl enable hostapd dnsmasq
+echo "    Done."
 
 # ---------------------------------------------------------------------------
 echo ""
-echo "==> [8/9] Installing picoBird Pro systemd services"
+echo "==> [8/9] Installing picoBird Pro services"
 # ---------------------------------------------------------------------------
 for svc in picobird-pre picobird-pro picobird-vitals picobird-button; do
     cp "$SCRIPT_DIR/${svc}.service" /etc/systemd/system/
@@ -144,51 +257,63 @@ for svc in picobird-pre picobird-pro picobird-vitals picobird-button; do
         /etc/systemd/system/${svc}.service
 done
 
+# Write the eBird API key directly into service overrides
+# so the user never needs to edit config files manually.
+for svc in picobird-pro picobird-pre; do
+    mkdir -p /etc/systemd/system/${svc}.service.d
+    cat > /etc/systemd/system/${svc}.service.d/override.conf <<EOF
+[Service]
+Environment=EBIRD_API_KEY=$EBIRD_API_KEY
+EOF
+done
+
+# Create log files with correct ownership
+touch /var/log/picobird-pro-access.log /var/log/picobird-pro-error.log
+chown picobird:picobird /var/log/picobird-pro-access.log /var/log/picobird-pro-error.log
+chmod 664 /var/log/picobird-pro-access.log /var/log/picobird-pro-error.log
+
 systemctl daemon-reload
 systemctl enable picobird-pre picobird-pro picobird-vitals picobird-button
+echo "    Done."
 
 # ---------------------------------------------------------------------------
 echo ""
-echo "==> [9/9] Installing local admin console"
+echo "==> [9/9] Installing admin console"
 # ---------------------------------------------------------------------------
 cp "$SCRIPT_DIR/picobird-console.sh" /etc/profile.d/picobird-console.sh
 chmod +x /etc/profile.d/picobird-console.sh
-
-# Allow the picobird venv's python to be run by any user for the console.
 chmod o+x "$PROJECT_DIR/venv/bin/python"
 chmod o+x "$PROJECT_DIR/venv/bin/python3" 2>/dev/null || true
 
-# Allow the console to call systemctl without a password (for R/S actions).
-# Only grants restart/stop/start for picoBird services.
 SUDOERS_FILE="/etc/sudoers.d/picobird-console"
 cat > "$SUDOERS_FILE" <<'EOF'
-# picoBird Pro — allow any local user to manage picoBird services
 ALL ALL=(root) NOPASSWD: /bin/systemctl restart picobird-pro picobird-vitals picobird-pre
 ALL ALL=(root) NOPASSWD: /bin/systemctl stop picobird-pro picobird-vitals picobird-pre
 ALL ALL=(root) NOPASSWD: /bin/systemctl start picobird-pro picobird-vitals picobird-pre
 EOF
 chmod 0440 "$SUDOERS_FILE"
+echo "    Done."
 
-echo ""
-echo "====================================================="
-echo " Setup complete!"
-echo ""
-echo " Boot sequence (fully automatic on every startup):"
-echo "   hostapd + dnsmasq  →  WiFi AP 'picoBirdPro' up"
-echo "   picobird-pre        →  DB init, taxonomy sync"
-echo "   picobird-pro        →  Flask API on :5000"
-echo "   picobird-vitals     →  e-ink dashboard"
-echo "   picobird-button     →  GPIO 26 reset button"
-echo ""
-echo " Physical console login → admin console auto-launches"
-echo " SSH login             → normal bash (unaffected)"
-echo " Type 'picobird-console' to reopen the console"
-echo ""
-echo " Before first boot, set your eBird API key:"
-echo "   sudo systemctl edit picobird-pro"
-echo "   sudo systemctl edit picobird-pre"
-echo "   Add under [Service]:"
-echo "     Environment=EBIRD_API_KEY=your_key_here"
-echo ""
-echo " Then reboot: sudo reboot"
-echo "====================================================="
+# ---------------------------------------------------------------------------
+print_header "Setup Complete!"
+cat <<EOF
+Your picoBird Pro Pi 5 is ready. Here's what was configured:
+
+  WiFi hotspot  : $AP_SSID
+  WiFi password : $AP_PASS
+  Pi 5 address  : $AP_IP
+  eBird API key : configured
+
+On every boot the Pi 5 will automatically:
+  1. Start the '$AP_SSID' WiFi hotspot
+  2. Load the bird species database
+  3. Start the picoBird Pro API server
+  4. Start the e-ink display dashboard
+
+Next step — reboot the Pi 5:
+
+  sudo reboot
+
+After rebooting, the '$AP_SSID' WiFi network will appear
+within about 30 seconds. Then set up your PicoCalc.
+EOF
