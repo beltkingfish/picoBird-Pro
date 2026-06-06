@@ -1,0 +1,25 @@
+[Unit]
+Description=picoBird Pro — Pi 5 field guide server
+After=network.target
+
+[Service]
+Type=simple
+User=picobird
+WorkingDirectory=/opt/picobird-pro
+Environment=PICOBIRD_DB=/var/lib/picobird-pro/picobird.db
+Environment=BIRDNET_DIR=/opt/BirdNET-Analyzer
+Environment=BIRDNET_MIN_CONF=0.5
+# Set your eBird API key via: systemctl edit picobird-pro
+# Environment=EBIRD_API_KEY=your_key_here
+ExecStart=/opt/picobird-pro/venv/bin/gunicorn \
+    --workers 2 \
+    --bind 0.0.0.0:5000 \
+    --timeout 60 \
+    --access-logfile /var/log/picobird-pro-access.log \
+    --error-logfile  /var/log/picobird-pro-error.log \
+    "server.main:create_app()"
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

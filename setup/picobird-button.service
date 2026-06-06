@@ -1,0 +1,17 @@
+[Unit]
+Description=picoBird Pro — physical reset button watcher
+After=picobird-pro.service
+
+[Service]
+Type=simple
+User=root
+# Needs root to call systemctl restart and reboot.
+WorkingDirectory=/opt/picobird-pro
+Environment=PICOBIRD_DB=/var/lib/picobird-pro/picobird.db
+Environment=BIRDNET_DIR=/opt/BirdNET-Analyzer
+ExecStart=/opt/picobird-pro/venv/bin/python -m server.button
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
