@@ -1,15 +1,6 @@
 #!/usr/bin/env bash
 # picoBird Pro — Pi 5 full setup script
 # Run as root on a fresh Raspberry Pi OS Lite (64-bit) image.
-#
-# Boot sequence installed:
-#   hostapd + dnsmasq       — WiFi AP 'picoBirdPro'
-#   picobird-pre.service    — one-shot DB init + taxonomy sync
-#   picobird-pro.service    — Flask/Gunicorn API on :5000
-#   picobird-vitals.service — e-ink dashboard (30 s refresh)
-#   picobird-button.service — physical GPIO reset button watcher
-#   /etc/profile.d          — admin console on physical console login
-
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -35,12 +26,12 @@ echo "==> [1/9] Installing system packages"
 apt-get update -qq
 apt-get install -y --no-install-recommends \
     python3 python3-pip python3-venv \
+    python3-rpi.gpio python3-spidev \
     hostapd dnsmasq \
     git ffmpeg \
     libopenblas-dev \
     libopenjp2-7 libjpeg-dev libfreetype-dev \
-    fonts-dejavu-core \
-    python3-rpi.gpio python3-spidev
+    fonts-dejavu-core
 
 # ---------------------------------------------------------------------------
 echo ""
@@ -53,7 +44,7 @@ usermod -aG spi,gpio "$SERVICE_USER" 2>/dev/null || true
 echo ""
 echo "==> [3/9] Setting up project directory"
 # ---------------------------------------------------------------------------
-mkdir -p "$PROJECT_DIR" "$DATA_DIR"
+mkdir -p "$PROJECT_DIR/setup" "$DATA_DIR"
 rsync -a --delete "$REPO_DIR/server/" "$PROJECT_DIR/server/"
 rsync -a "$REPO_DIR/setup/preflight.py" "$PROJECT_DIR/setup/preflight.py"
 chown -R "$SERVICE_USER:$SERVICE_USER" "$PROJECT_DIR" "$DATA_DIR"
@@ -61,15 +52,17 @@ chown -R "$SERVICE_USER:$SERVICE_USER" "$PROJECT_DIR" "$DATA_DIR"
 # ---------------------------------------------------------------------------
 echo ""
 echo "==> [4/9] Installing Python dependencies"
+# Use --system-site-packages so the venv can access system RPi.GPIO + spidev
+# without needing to compile them from source.
 # ---------------------------------------------------------------------------
-python3 -m venv "$PROJECT_DIR/venv"
+if [ ! -f "$PROJECT_DIR/venv/bin/python" ]; then
+    python3 -m venv --system-site-packages "$PROJECT_DIR/venv"
+fi
 "$PROJECT_DIR/venv/bin/pip" install --upgrade pip -q
 "$PROJECT_DIR/venv/bin/pip" install \
     flask>=3.0 \
     requests>=2.31 \
     gunicorn>=21.2 \
-    RPi.GPIO \
-    spidev \
     Pillow -q
 
 # ---------------------------------------------------------------------------
@@ -176,10 +169,6 @@ echo "   picobird-pre        →  DB init, taxonomy sync"
 echo "   picobird-pro        →  Flask API on :5000"
 echo "   picobird-vitals     →  e-ink dashboard"
 echo "   picobird-button     →  GPIO 26 reset button"
-echo ""
-echo " Physical console login → admin console auto-launches"
-echo " SSH login             → normal bash (unaffected)"
-echo " Type 'picobird-console' to reopen the console"
 echo ""
 echo " Before first boot, set your eBird API key:"
 echo "   sudo systemctl edit picobird-pro"
