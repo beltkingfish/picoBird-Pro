@@ -2,18 +2,13 @@
 # picoBird Pro — Pi 5 full setup script
 # Run as root on a fresh Raspberry Pi OS Lite (64-bit) image.
 #
-# What this does:
-#   1. Installs system packages (Python, hostapd, dnsmasq, Pillow deps)
-#   2. Creates the 'picobird' service user
-#   3. Copies server code to /opt/picobird-pro
-#   4. Creates Python venv + installs dependencies
-#   5. Clones BirdNET-Analyzer
-#   6. Configures hostapd + dnsmasq WiFi AP
-#   7. Installs and enables four systemd services:
-#        picobird-pre.service    — one-shot boot preflight (DB init, taxonomy)
-#        picobird-pro.service    — Flask/Gunicorn API server
-#        picobird-vitals.service — e-ink vitals display
-#   8. Adds RPi.GPIO + spidev + Pillow for the e-ink display
+# Boot sequence installed:
+#   hostapd + dnsmasq       — WiFi AP 'picoBirdPro'
+#   picobird-pre.service    — one-shot DB init + taxonomy sync
+#   picobird-pro.service    — Flask/Gunicorn API on :5000
+#   picobird-vitals.service — e-ink dashboard (30 s refresh)
+#   picobird-button.service — physical GPIO reset button watcher
+#   /etc/profile.d          — admin console on physical console login
 
 set -euo pipefail
 
@@ -27,7 +22,7 @@ SERVICE_USER="picobird"
 AP_SSID="picoBirdPro"
 AP_PASS="fieldguide"
 AP_IP="192.168.4.1"
-WIFI_IF="wlan0"   # change to wlan1 if using a USB dongle for the AP
+WIFI_IF="wlan0"
 
 echo "====================================================="
 echo " picoBird Pro — Pi 5 setup"
@@ -35,7 +30,7 @@ echo "====================================================="
 
 # ---------------------------------------------------------------------------
 echo ""
-echo "==> [1/8] Installing system packages"
+echo "==> [1/9] Installing system packages"
 # ---------------------------------------------------------------------------
 apt-get update -qq
 apt-get install -y --no-install-recommends \
@@ -49,24 +44,23 @@ apt-get install -y --no-install-recommends \
 
 # ---------------------------------------------------------------------------
 echo ""
-echo "==> [2/8] Creating service user '$SERVICE_USER'"
+echo "==> [2/9] Creating service user '$SERVICE_USER'"
 # ---------------------------------------------------------------------------
 id -u "$SERVICE_USER" &>/dev/null || useradd -r -s /sbin/nologin "$SERVICE_USER"
-# Allow picobird to access SPI and GPIO
 usermod -aG spi,gpio "$SERVICE_USER" 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
 echo ""
-echo "==> [3/8] Setting up project directory"
+echo "==> [3/9] Setting up project directory"
 # ---------------------------------------------------------------------------
 mkdir -p "$PROJECT_DIR" "$DATA_DIR"
 rsync -a --delete "$REPO_DIR/server/" "$PROJECT_DIR/server/"
-rsync -a          "$REPO_DIR/setup/preflight.py" "$PROJECT_DIR/setup/preflight.py"
+rsync -a "$REPO_DIR/setup/preflight.py" "$PROJECT_DIR/setup/preflight.py"
 chown -R "$SERVICE_USER:$SERVICE_USER" "$PROJECT_DIR" "$DATA_DIR"
 
 # ---------------------------------------------------------------------------
 echo ""
-echo "==> [4/8] Installing Python dependencies"
+echo "==> [4/9] Installing Python dependencies"
 # ---------------------------------------------------------------------------
 python3 -m venv "$PROJECT_DIR/venv"
 "$PROJECT_DIR/venv/bin/pip" install --upgrade pip -q
@@ -80,7 +74,7 @@ python3 -m venv "$PROJECT_DIR/venv"
 
 # ---------------------------------------------------------------------------
 echo ""
-echo "==> [5/8] Installing BirdNET-Analyzer"
+echo "==> [5/9] Installing BirdNET-Analyzer"
 # ---------------------------------------------------------------------------
 if [ ! -d /opt/BirdNET-Analyzer ]; then
     git clone --depth 1 https://github.com/kahst/BirdNET-Analyzer /opt/BirdNET-Analyzer
@@ -91,10 +85,8 @@ fi
 
 # ---------------------------------------------------------------------------
 echo ""
-echo "==> [6/8] Configuring WiFi Access Point (hostapd + dnsmasq)"
+echo "==> [6/9] Configuring WiFi Access Point (hostapd + dnsmasq)"
 # ---------------------------------------------------------------------------
-
-# Static IP for the AP interface
 if ! grep -q "interface $WIFI_IF" /etc/dhcpcd.conf 2>/dev/null; then
     cat >> /etc/dhcpcd.conf <<EOF
 
@@ -137,42 +129,66 @@ fi
 
 # ---------------------------------------------------------------------------
 echo ""
-echo "==> [7/8] Enabling system services"
+echo "==> [7/9] Enabling hostapd + dnsmasq"
 # ---------------------------------------------------------------------------
 systemctl unmask hostapd 2>/dev/null || true
 systemctl enable hostapd dnsmasq
 
 # ---------------------------------------------------------------------------
 echo ""
-echo "==> [8/8] Installing picoBird Pro systemd services"
+echo "==> [8/9] Installing picoBird Pro systemd services"
 # ---------------------------------------------------------------------------
-cp "$SCRIPT_DIR/picobird-pre.service"    /etc/systemd/system/
-cp "$SCRIPT_DIR/picobird-pro.service"    /etc/systemd/system/
-cp "$SCRIPT_DIR/picobird-vitals.service" /etc/systemd/system/
-
-# Point the services at the installed location
-sed -i "s|WorkingDirectory=.*|WorkingDirectory=$PROJECT_DIR|" \
-    /etc/systemd/system/picobird-pro.service \
-    /etc/systemd/system/picobird-vitals.service
+for svc in picobird-pre picobird-pro picobird-vitals picobird-button; do
+    cp "$SCRIPT_DIR/${svc}.service" /etc/systemd/system/
+    sed -i "s|WorkingDirectory=.*|WorkingDirectory=$PROJECT_DIR|" \
+        /etc/systemd/system/${svc}.service
+done
 
 systemctl daemon-reload
-systemctl enable picobird-pre picobird-pro picobird-vitals
+systemctl enable picobird-pre picobird-pro picobird-vitals picobird-button
+
+# ---------------------------------------------------------------------------
+echo ""
+echo "==> [9/9] Installing local admin console"
+# ---------------------------------------------------------------------------
+cp "$SCRIPT_DIR/picobird-console.sh" /etc/profile.d/picobird-console.sh
+chmod +x /etc/profile.d/picobird-console.sh
+
+# Allow the picobird venv's python to be run by any user for the console.
+chmod o+x "$PROJECT_DIR/venv/bin/python"
+chmod o+x "$PROJECT_DIR/venv/bin/python3" 2>/dev/null || true
+
+# Allow the console to call systemctl without a password (for R/S actions).
+# Only grants restart/stop/start for picoBird services.
+SUDOERS_FILE="/etc/sudoers.d/picobird-console"
+cat > "$SUDOERS_FILE" <<'EOF'
+# picoBird Pro — allow any local user to manage picoBird services
+ALL ALL=(root) NOPASSWD: /bin/systemctl restart picobird-pro picobird-vitals picobird-pre
+ALL ALL=(root) NOPASSWD: /bin/systemctl stop picobird-pro picobird-vitals picobird-pre
+ALL ALL=(root) NOPASSWD: /bin/systemctl start picobird-pro picobird-vitals picobird-pre
+EOF
+chmod 0440 "$SUDOERS_FILE"
 
 echo ""
 echo "====================================================="
 echo " Setup complete!"
 echo ""
-echo " Boot sequence (automatic on every startup):"
+echo " Boot sequence (fully automatic on every startup):"
 echo "   hostapd + dnsmasq  →  WiFi AP 'picoBirdPro' up"
 echo "   picobird-pre        →  DB init, taxonomy sync"
 echo "   picobird-pro        →  Flask API on :5000"
-echo "   picobird-vitals     →  e-ink dashboard refresh"
+echo "   picobird-vitals     →  e-ink dashboard"
+echo "   picobird-button     →  GPIO 26 reset button"
+echo ""
+echo " Physical console login → admin console auto-launches"
+echo " SSH login             → normal bash (unaffected)"
+echo " Type 'picobird-console' to reopen the console"
 echo ""
 echo " Before first boot, set your eBird API key:"
-echo "   sudo systemctl edit picobird-pro picobird-pre"
+echo "   sudo systemctl edit picobird-pro"
+echo "   sudo systemctl edit picobird-pre"
 echo "   Add under [Service]:"
 echo "     Environment=EBIRD_API_KEY=your_key_here"
 echo ""
-echo " Then reboot:"
-echo "   sudo reboot"
+echo " Then reboot: sudo reboot"
 echo "====================================================="
