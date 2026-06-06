@@ -1,0 +1,16 @@
+[Unit]
+Description=picoBird Pro — pre-flight check (DB init, taxonomy check)
+After=network-online.target hostapd.service
+Wants=network-online.target
+Before=picobird-pro.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=picobird
+WorkingDirectory=/opt/picobird-pro
+Environment=PICOBIRD_DB=/var/lib/picobird-pro/picobird.db
+ExecStart=/opt/picobird-pro/venv/bin/python /opt/picobird-pro/setup/preflight.py
+
+[Install]
+WantedBy=multi-user.target

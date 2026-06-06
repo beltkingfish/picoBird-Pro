@@ -1,0 +1,18 @@
+[Unit]
+Description=picoBird Pro — e-ink vitals display
+After=picobird-pro.service
+Requires=picobird-pro.service
+
+[Service]
+Type=simple
+User=picobird
+WorkingDirectory=/opt/picobird-pro
+Environment=PICOBIRD_DB=/var/lib/picobird-pro/picobird.db
+Environment=BIRDNET_DIR=/opt/BirdNET-Analyzer
+Environment=VITALS_INTERVAL=30
+ExecStart=/opt/picobird-pro/venv/bin/python -m server.vitals
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
