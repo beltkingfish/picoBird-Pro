@@ -53,7 +53,6 @@ chown -R "$SERVICE_USER:$SERVICE_USER" "$PROJECT_DIR" "$DATA_DIR"
 echo ""
 echo "==> [4/9] Installing Python dependencies"
 # Use --system-site-packages so the venv can access system RPi.GPIO + spidev
-# without needing to compile them from source.
 # ---------------------------------------------------------------------------
 if [ ! -f "$PROJECT_DIR/venv/bin/python" ]; then
     python3 -m venv --system-site-packages "$PROJECT_DIR/venv"
@@ -71,10 +70,12 @@ echo "==> [5/9] Installing BirdNET-Analyzer"
 # ---------------------------------------------------------------------------
 if [ ! -d /opt/BirdNET-Analyzer ]; then
     git clone --depth 1 https://github.com/kahst/BirdNET-Analyzer /opt/BirdNET-Analyzer
-    "$PROJECT_DIR/venv/bin/pip" install -r /opt/BirdNET-Analyzer/requirements.txt -q
 else
-    echo "    Already installed, skipping clone."
+    echo "    Already cloned, skipping."
 fi
+# BirdNET-Analyzer now uses pyproject.toml — install as a package directly.
+"$PROJECT_DIR/venv/bin/pip" install /opt/BirdNET-Analyzer -q || \
+    echo "    Warning: BirdNET install had errors — sound ID may not work."
 
 # ---------------------------------------------------------------------------
 echo ""
