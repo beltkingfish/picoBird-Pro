@@ -141,6 +141,11 @@ done
 systemctl daemon-reload
 systemctl enable picobird-pre picobird-pro picobird-vitals picobird-button
 
+# Create log files with correct ownership so gunicorn can write to them
+touch /var/log/picobird-pro-access.log /var/log/picobird-pro-error.log
+chown picobird:picobird /var/log/picobird-pro-access.log /var/log/picobird-pro-error.log
+chmod 664 /var/log/picobird-pro-access.log /var/log/picobird-pro-error.log
+
 # ---------------------------------------------------------------------------
 echo ""
 echo "==> [9/9] Installing local admin console"
