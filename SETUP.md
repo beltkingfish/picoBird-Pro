@@ -16,6 +16,8 @@ Expect about **30–45 minutes** for the Pi 5 and **10 minutes** for the PicoCal
 | USB-C power supply (5 V / 5 A) | Official Pi 5 supply or a 27 W+ PD charger |
 | Waveshare 2.9" e-ink display V2 | SPI interface, 296×128 px |
 | 8 female-to-female jumper wires | For e-ink → Pi GPIO |
+| Momentary push button | For the field reset button (any normally-open type) |
+| 2 female-to-female jumper wires | Button → Pi GPIO |
 | ClockworkPi PicoCalc | With Pico 2 W module fitted |
 | Another computer | To flash cards and copy files |
 
@@ -76,7 +78,9 @@ The installer will:
 - Clone BirdNET-Analyzer to `/opt/BirdNET-Analyzer`
 - Configure the `picoBirdPro` WiFi access point
 - Enable SPI for the e-ink display
-- Install and enable all three systemd services
+- Install and enable all systemd services
+- Install the admin console auto-launch for physical console logins
+- Set up passwordless `sudo` for service restart/stop (console only)
 
 > The BirdNET clone can take a few minutes depending on your connection.
 
@@ -119,10 +123,30 @@ using jumper wires:
 | RST | GPIO 17 | Pin 11 |
 | BUSY | GPIO 24 | Pin 18 |
 
-The physical pin numbers are printed on most Pi GPIO reference cards.
-The BCM numbers are what the software uses.
+### Step 7 — Wire up the reset button
 
-### Step 7 — First reboot
+Still with the Pi **powered off**, connect a momentary push button between
+two GPIO pins:
+
+| Button terminal | Pi GPIO (BCM) | Physical pin |
+|---|---|---|
+| Terminal A | GPIO 26 | Pin 37 |
+| Terminal B | GND | Pin 39 |
+
+No resistor needed — the Pi's internal pull-up is enabled by the software.
+Mount the button somewhere accessible on your enclosure.
+
+**What the button does:**
+
+| Press type | Action |
+|---|---|
+| Short press (< 3 s) | Restarts the three picoBird services |
+| Long press (≥ 3 s) | Full system reboot |
+
+While restarting, the e-ink display shows "Restarting... Please wait"
+and then refreshes with the live dashboard once everything is back up.
+
+### Step 8 — First reboot
 
 Disconnect Ethernet, then reboot:
 
@@ -134,12 +158,13 @@ After ~30 seconds:
 - The `picoBirdPro` WiFi network will appear
 - The e-ink display will show the vitals dashboard
 - The API server will be running on `192.168.4.1:5000`
+- The reset button will be active
 
 On **first boot only**, the preflight service will download the full eBird
 taxonomy (~16,000 species) into the local database. This takes about 20 seconds
 and only happens once.
 
-### Step 8 — Verify the server is running
+### Step 9 — Verify the server is running
 
 Connect your phone or laptop to the `picoBirdPro` WiFi (password: `fieldguide`),
 then open a browser or run:
@@ -158,7 +183,7 @@ If you see those responses, the Pi 5 is fully set up.
 
 ## Part 2 — PicoCalc
 
-### Step 9 — Flash MicroPython onto the Pico 2 W
+### Step 10 — Flash MicroPython onto the Pico 2 W
 
 1. Download the latest **MicroPython for Pico 2 W** UF2 file from
    https://micropython.org/download/RPI_PICO2_W/
@@ -168,7 +193,7 @@ If you see those responses, the Pi 5 is fully set up.
 4. Drag the UF2 file onto that drive
 5. The Pico will reboot automatically into MicroPython
 
-### Step 10 — Install mpremote
+### Step 11 — Install mpremote
 
 On your computer:
 
@@ -183,7 +208,7 @@ mpremote connect list
 # Should show something like: /dev/ttyACM0  (Linux/Mac) or COM3 (Windows)
 ```
 
-### Step 11 — Copy client files to the PicoCalc
+### Step 12 — Copy client files to the PicoCalc
 
 From the root of this repo:
 
@@ -191,12 +216,12 @@ From the root of this repo:
 mpremote connect /dev/ttyACM0 cp -r client/. :
 ```
 
-Replace `/dev/ttyACM0` with your port from Step 10.
+Replace `/dev/ttyACM0` with your port from Step 11.
 
 This copies everything in `client/` — `main.py`, `lib/`, and `app/` —
 to the root of the Pico's filesystem.
 
-### Step 12 — Verify the pin constants
+### Step 13 — Verify the pin constants
 
 Open `client/main.py` and check the hardware constants at the top of the file
 match your PicoCalc's wiring:
@@ -219,7 +244,7 @@ KBD_SCL  = 21
 These match the standard PicoCalc schematic. If your board differs, edit
 the values before copying the file.
 
-### Step 13 — Boot the PicoCalc
+### Step 14 — Boot the PicoCalc
 
 Power cycle the PicoCalc (or press its reset button). With the Pi 5 already
 running, the PicoCalc will:
@@ -237,7 +262,7 @@ RESET to try again.
 
 ## Using the app
 
-### Navigation
+### PicoCalc navigation
 
 | Key | Action |
 |---|---|
@@ -247,15 +272,53 @@ RESET to try again.
 | Type letters | Search (on search screens) |
 | Backspace | Delete last character |
 
-### First steps
+### Pi 5 admin console
 
-1. **Search Species** — type a common name or scientific name, use arrow keys
-   to browse results, press Enter on a species to view details and log it
-2. **Log Observation** — quick-log a bird with an optional count
-3. **Life List** — browse every species you've ever logged
-4. **Sessions** — start a named session to group a day's observations together
-5. **Sound ID** — records a 3-second clip and sends it to BirdNET on the Pi 5
-   (requires an I2S microphone wired to GP10/11/12)
+When a keyboard and monitor are plugged into the Pi 5 and you log in,
+the admin console launches automatically:
+
+```
+ picoBird Pro — Admin Console                               14:32:01
+
+ IP: 192.168.4.1   up 3h 22m   CPU 44°C   RAM 38%
+ ──────────────────────────────────────────────────
+ Services
+   ● API Server         running
+   ● E-ink Display      running
+   ● Preflight          running
+   ● Reset Button       running
+   ● WiFi AP            running (2 clients)
+ ──────────────────────────────────────────────────
+ Birding
+   Server ●   BirdNET ●
+   Lifers 247   Obs today 12
+   Last: American Robin  14:28
+ ──────────────────────────────────────────────────
+ [R] Restart   [S] Stop   [T] Sync   [L] Logs   [Q] Exit
+```
+
+| Key | Action |
+|---|---|
+| Q | Exit console — drops to normal bash shell |
+| R | Restart all picoBird services |
+| S | Stop all picoBird services |
+| T | Trigger an eBird taxonomy sync |
+| L | Show last 20 lines of the server log |
+
+The console **only** auto-launches on a physical login (keyboard + HDMI).
+SSH sessions see a normal bash prompt, unchanged.
+
+To reopen the console from bash:
+```bash
+picobird-console
+```
+
+### Field reset button
+
+| Press type | What happens |
+|---|---|
+| Short press (< 3 s) | Services restart; e-ink shows "Restarting..." then refreshes |
+| Long press (≥ 3 s) | Full system reboot |
 
 ---
 
@@ -264,10 +327,11 @@ RESET to try again.
 ### Pi 5 — checking service status
 
 ```bash
-# Connect via ethernet and SSH in, then:
+# SSH in, then:
 sudo systemctl status picobird-pre
 sudo systemctl status picobird-pro
 sudo systemctl status picobird-vitals
+sudo systemctl status picobird-button
 
 # View live logs:
 sudo journalctl -fu picobird-pro
@@ -297,13 +361,29 @@ curl -X POST http://192.168.4.1:5000/api/species/sync
 
 - Check SPI is enabled: `ls /dev/spidev*` should show `/dev/spidev0.0`
 - If missing: `sudo raspi-config` → Interface Options → SPI → Enable, reboot
-- Check wiring against the table in Step 6
+- Check wiring against Step 6
 - Check the vitals service: `sudo systemctl status picobird-vitals`
+
+### Pi 5 — reset button not responding
+
+- Check wiring: one leg to GPIO 26 (physical pin 37), other to GND (pin 39)
+- Check the button service: `sudo systemctl status picobird-button`
+- Test the GPIO manually:
+  ```bash
+  python3 -c "import RPi.GPIO as GPIO; GPIO.setmode(GPIO.BCM); GPIO.setup(26, GPIO.IN, pull_up_down=GPIO.PUD_UP); print(GPIO.input(26))"
+  # Should print 1 (high). Press button — should print 0 if wired correctly.
+  ```
+
+### Pi 5 — admin console not launching on login
+
+- Verify HDMI is connected before the Pi boots
+- Check the profile script: `cat /etc/profile.d/picobird-console.sh`
+- Try launching manually: `picobird-console`
+- If permission error: `sudo chmod o+x /opt/picobird-pro/venv/bin/python`
 
 ### PicoCalc — stuck on "Scanning..."
 
-- Make sure the Pi 5 is fully booted first (e-ink display should be showing
-  the dashboard)
+- Make sure the Pi 5 is fully booted first (e-ink display should show the dashboard)
 - The PicoCalc scans 8 times with backoff before giving up (~30 seconds total)
 - Press RESET on the PicoCalc to try again
 
@@ -324,8 +404,7 @@ Both devices can connect and log simultaneously — the server handles concurren
 requests and SQLite WAL mode queues any simultaneous writes safely.
 
 Note: observations, sessions, and the life list are **shared** between all
-connected devices. If you want separate per-person lists, open an issue —
-it's a straightforward addition.
+connected devices.
 
 ---
 
@@ -351,7 +430,7 @@ To change these, edit `setup/install.sh` (AP side) and `client/main.py`
 cd /opt/picobird-pro-src
 git pull
 sudo bash setup/install.sh
-sudo systemctl restart picobird-pro picobird-vitals
+sudo systemctl restart picobird-pro picobird-vitals picobird-button
 ```
 
 ### PicoCalc
