@@ -37,8 +37,8 @@ apt-get install -y --no-install-recommends \
     python3 python3-pip python3-venv \
     hostapd dnsmasq \
     git ffmpeg \
-    libatlas-base-dev \
-    libopenjp2-7 libjpeg-dev libfreetype6-dev \
+    libopenblas-dev \
+    libopenjp2-7 libjpeg-dev libfreetype-dev \
     fonts-dejavu-core \
     python3-rpi.gpio python3-spidev
 
@@ -154,12 +154,9 @@ echo "==> [9/9] Installing local admin console"
 cp "$SCRIPT_DIR/picobird-console.sh" /etc/profile.d/picobird-console.sh
 chmod +x /etc/profile.d/picobird-console.sh
 
-# Allow the picobird venv's python to be run by any user for the console.
 chmod o+x "$PROJECT_DIR/venv/bin/python"
 chmod o+x "$PROJECT_DIR/venv/bin/python3" 2>/dev/null || true
 
-# Allow the console to call systemctl without a password (for R/S actions).
-# Only grants restart/stop/start for picoBird services.
 SUDOERS_FILE="/etc/sudoers.d/picobird-console"
 cat > "$SUDOERS_FILE" <<'EOF'
 # picoBird Pro — allow any local user to manage picoBird services
