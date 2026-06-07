@@ -272,6 +272,7 @@ def render_once() -> bool:
     log.info("Initialising e-ink display...")
     epd.init()
     try:
+        epd.clear()  # wipe any stale/partial image before drawing
         img = render_image()
         epd.display(image_to_bytes(img))
         log.info("Single frame displayed")
