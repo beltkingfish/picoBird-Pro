@@ -32,9 +32,9 @@ class LifeListScreen(Screen):
 
     def _load(self):
         try:
-            data = get(self.ui.api_host, self.ui.api_port, "/api/lifelist", timeout=6)
+            data = get(self.ui.api_host, self.ui.api_port, "/api/lifelist/", timeout=6)
             if data and isinstance(data, list):
-                self._items = [e.get("comName", "?") for e in data]
+                self._items = [e.get("common_name", e.get("comName", "?")) for e in data]
                 self._error = ""
             else:
                 self._items = []

@@ -32,9 +32,9 @@ class TodayScreen(Screen):
 
     def _load(self):
         try:
-            data = get(self.ui.api_host, self.ui.api_port, "/api/obs/recent?max=100", timeout=8)
+            data = get(self.ui.api_host, self.ui.api_port, "/api/observations/?limit=100&offset=0", timeout=8)
             if data and isinstance(data, list):
-                self._items = [o.get("comName", "?") + " — " + o.get("locName", "") for o in data]
+                self._items = [o.get("common_name", "?") + " — " + o.get("observed_at", "")[:10] for o in data]
                 self._error = ""
             else:
                 self._items = []
