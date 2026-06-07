@@ -2,7 +2,7 @@
 Life List screen — species the user has logged.
 """
 from app.screen import Screen
-from lib.keyboard import PRESSED, KEY_ESC, KEY_UP, KEY_DOWN
+from lib.keyboard import PRESSED, HOLD, KEY_ESC, KEY_UP, KEY_DOWN
 from app.http import get
 
 C_BG     = (0, 0, 0)
@@ -63,9 +63,9 @@ class LifeListScreen(Screen):
         self._dirty = False
 
     def on_key(self, state, key):
-        if state != PRESSED:
+        if state not in (PRESSED, HOLD):
             return
-        if key == KEY_ESC:
+        if key == KEY_ESC and state == PRESSED:
             self.ui.stack.pop()
         elif key == KEY_UP and self._sel > 0:
             self._sel -= 1

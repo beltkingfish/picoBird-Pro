@@ -3,7 +3,7 @@ Home screen — main menu with Today / Search / Life List / Settings.
 """
 import time
 from app.screen import Screen
-from lib.keyboard import PRESSED, KEY_UP, KEY_DOWN, KEY_ENTER, KEY_ESC
+from lib.keyboard import PRESSED, HOLD, KEY_UP, KEY_DOWN, KEY_ENTER, KEY_ESC
 from app.http import get
 
 MENU_ITEMS = ["Today's Birds", "Search Species", "My Life List", "Sound ID", "Settings"]
@@ -35,8 +35,8 @@ class HomeScreen(Screen):
 
     def _ping(self):
         if not self.ui.connected:
-            self._status = "No WiFi"
-            self._status_color = (255, 80, 80)
+            self._status = "No WiFi - offline mode"
+            self._status_color = (255, 160, 0)
             return
         try:
             r = get(self.ui.api_host, self.ui.api_port, "/api/ping", timeout=3)
@@ -52,7 +52,6 @@ class HomeScreen(Screen):
 
     def draw(self):
         if not self._dirty:
-            # Re-ping every 30 s without full redraw
             now = time.ticks_ms()
             if time.ticks_diff(now, self._last_ping) > 30_000:
                 self._last_ping = now
@@ -65,13 +64,10 @@ class HomeScreen(Screen):
         d = self.ui.display
         d.fill(*C_BG)
 
-        # Header
         d.text("picoBird Pro", 10, 8, fg=C_HEADER)
         d.text(self._status, 10, 22, fg=self._status_color)
-        # Divider (thin horizontal line)
         d.fill_rect(0, 42, 320, 1, 40, 100, 60)
 
-        # Menu
         for i, item in enumerate(MENU_ITEMS):
             y = START_Y + i * ROW_H
             if i == self._sel:
@@ -80,14 +76,14 @@ class HomeScreen(Screen):
             else:
                 d.text("  " + item, 10, y, fg=C_FG)
 
-        # Footer hint
-        d.text("Enter=select  Esc=back", 10, 300, fg=C_DIM)
+        d.text("Joy/arrows=nav  Center/Enter=open", 4, 300, fg=C_DIM)
 
         self._dirty = False
         self._last_ping = time.ticks_ms()
 
     def on_key(self, state, key):
-        if state != PRESSED:
+        # Accept both PRESSED and HOLD for smooth navigation
+        if state not in (PRESSED, HOLD):
             return
         if key == KEY_UP:
             self._sel = (self._sel - 1) % len(MENU_ITEMS)
@@ -95,7 +91,7 @@ class HomeScreen(Screen):
         elif key == KEY_DOWN:
             self._sel = (self._sel + 1) % len(MENU_ITEMS)
             self._dirty = True
-        elif key == KEY_ENTER:
+        elif key == KEY_ENTER and state == PRESSED:
             self._open_selected()
 
     def _open_selected(self):
@@ -109,7 +105,6 @@ class HomeScreen(Screen):
             self.ui.stack.push(SearchScreen(self.ui))
         elif self._sel == 2:
             self.ui.stack.push(LifeListScreen(self.ui))
-        # Sound ID and Settings: show "coming soon"
         else:
             self._status = MENU_ITEMS[self._sel] + ": coming soon"
             self._status_color = (180, 180, 50)
