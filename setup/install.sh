@@ -200,7 +200,35 @@ echo "    Done."
 echo ""
 echo "==> [6/9] Configuring WiFi hotspot"
 # ---------------------------------------------------------------------------
-if ! grep -q "interface $WIFI_IF" /etc/dhcpcd.conf 2>/dev/null; then
+
+# Tell NetworkManager to leave wlan0 alone so hostapd can own it.
+# Works regardless of whether NM is installed.
+mkdir -p /etc/NetworkManager/conf.d
+cat > /etc/NetworkManager/conf.d/picobird-unmanaged.conf <<EOF
+[keyfile]
+unmanaged-devices=interface-name:$WIFI_IF
+EOF
+
+# Assign the static AP IP via a dedicated systemd service.
+# This is more reliable than dhcpcd.conf on modern Pi OS (Debian Bookworm/Trixie)
+# which uses NetworkManager instead of dhcpcd.
+cat > /etc/systemd/system/picobird-wlan-ip.service <<EOF
+[Unit]
+Description=Assign static IP to $WIFI_IF for picoBird Pro AP
+After=network.target
+Before=hostapd.service dnsmasq.service
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/ip addr replace $AP_IP/24 dev $WIFI_IF
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Also write dhcpcd.conf entry for systems that still use dhcpcd
+if [ -f /etc/dhcpcd.conf ] && ! grep -q "interface $WIFI_IF" /etc/dhcpcd.conf; then
     cat >> /etc/dhcpcd.conf <<EOF
 
 # picoBird Pro AP
@@ -244,7 +272,10 @@ echo ""
 echo "==> [7/9] Enabling hotspot services"
 # ---------------------------------------------------------------------------
 systemctl unmask hostapd 2>/dev/null || true
-systemctl enable hostapd dnsmasq
+systemctl daemon-reload
+systemctl enable picobird-wlan-ip hostapd dnsmasq
+# Reload NM so it picks up the unmanaged config immediately
+systemctl reload NetworkManager 2>/dev/null || true
 echo "    Done."
 
 # ---------------------------------------------------------------------------
