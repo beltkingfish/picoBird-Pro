@@ -282,6 +282,14 @@ if ! "$PROJECT_DIR/venv/bin/pip" install /opt/BirdNET-Analyzer -q; then
         exit 1
     fi
 fi
+
+# piwheels serves an ancient flatbuffers (version "20181003210633") that PEP 440
+# reads as NEWER than any real release and which still does `import imp` (gone in
+# Python 3.12+), breaking TensorFlow Lite. Force the real PyPI build TF needs.
+echo "    Pinning flatbuffers from PyPI (piwheels ships a broken build)..."
+"$PROJECT_DIR/venv/bin/pip" install --index-url https://pypi.org/simple \
+    --force-reinstall "flatbuffers>=25.9.23,<99" -q || \
+    echo "    Warning: could not pin flatbuffers; Sound ID may fail on Python 3.12+."
 echo "    Done."
 
 # ---------------------------------------------------------------------------
