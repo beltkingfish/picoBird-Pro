@@ -58,12 +58,15 @@ def analyze_clip(
         )
 
     with tempfile.TemporaryDirectory() as out_dir:
+        # Use the "table" (BirdNET selection table) writer rather than "csv":
+        # the csv writer crashes on empty results (splits an empty species_name
+        # column into two). The table writer is a tab-separated .txt and is safe.
         cmd = [
             sys.executable, "-m", "birdnet_analyzer.analyze",
             wav_path,
             "-o",         out_dir,
             "--min_conf", str(min_conf),
-            "--rtype",    "csv",
+            "--rtype",    "table",
         ]
         if lat is not None and lon is not None:
             cmd += ["--lat", str(lat), "--lon", str(lon)]
@@ -82,30 +85,30 @@ def analyze_clip(
                 "BirdNET failed: {}".format((result.stderr or result.stdout)[:500])
             )
 
-        # The CSV result type writes one .csv per input file into out_dir.
-        csv_files = glob.glob(os.path.join(out_dir, "*.csv"))
-        if not csv_files:
+        # The table result type writes one tab-separated .txt per input file.
+        table_files = glob.glob(os.path.join(out_dir, "*.txt"))
+        if not table_files:
             return []
 
         detections: list[dict] = []
-        for path in csv_files:
+        for path in table_files:
             with open(path, newline="") as f:
-                for entry in csv.DictReader(f):
+                for entry in csv.DictReader(f, delimiter="\t"):
                     try:
                         conf = float(_pick(entry, "confidence") or 0)
                     except ValueError:
                         conf = 0.0
                     try:
-                        start_s = float(_pick(entry, "start (s)", "start_time", "start") or 0)
+                        start_s = float(_pick(entry, "begin time (s)", "start (s)", "start") or 0)
                     except ValueError:
                         start_s = 0.0
                     try:
-                        end_s = float(_pick(entry, "end (s)", "end_time", "end") or 3)
+                        end_s = float(_pick(entry, "end time (s)", "end (s)", "end") or 3)
                     except ValueError:
                         end_s = 3.0
                     detections.append({
                         "common_name": _pick(entry, "common name", "common_name"),
-                        "sci_name":    _pick(entry, "scientific name", "scientific_name"),
+                        "sci_name":    _pick(entry, "scientific name", "scientific_name", "species code"),
                         "confidence":  round(conf, 4),
                         "start_s":     start_s,
                         "end_s":       end_s,
