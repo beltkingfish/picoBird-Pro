@@ -293,10 +293,14 @@ echo "    Pinning flatbuffers from PyPI (piwheels ships a broken build)..."
 
 # Warm up BirdNET: download the ~77 MB acoustic model now (while we have
 # internet) so the first field capture isn't slow or — if the Pi is offline in
-# the field — failing. A silent clip triggers the download; the analyzer's
-# empty-result writer bug is expected and harmless here, so ignore its exit.
+# the field — failing. Run AS THE SERVICE USER so the model lands in that user's
+# ~/.local/share/birdnet (the running service reads it from there, not root's).
+# A silent clip triggers the download; the analyzer's empty-result writer bug is
+# expected and harmless here, so ignore its exit.
 echo "    Pre-downloading BirdNET acoustic model (~77 MB, one time)..."
+_svc_home="$(getent passwd "$SERVICE_USER" | cut -d: -f6)"
 _warm_wav="$(mktemp --suffix=.wav)"
+_warm_out="$(mktemp -d)"
 if "$PROJECT_DIR/venv/bin/python" - "$_warm_wav" <<'PY' 2>/dev/null
 import sys, wave, struct
 with wave.open(sys.argv[1], "w") as w:
@@ -304,10 +308,12 @@ with wave.open(sys.argv[1], "w") as w:
     w.writeframes(struct.pack("<" + "h" * 48000 * 3, *([0] * 48000 * 3)))
 PY
 then
-    "$PROJECT_DIR/venv/bin/python" -m birdnet_analyzer.analyze "$_warm_wav" \
-        -o "$(mktemp -d)" --rtype table >/dev/null 2>&1 || true
+    chmod a+r "$_warm_wav"; chmod a+rwx "$_warm_out"
+    sudo -u "$SERVICE_USER" env HOME="${_svc_home:-/home/$SERVICE_USER}" \
+        "$PROJECT_DIR/venv/bin/python" -m birdnet_analyzer.analyze "$_warm_wav" \
+        -o "$_warm_out" --rtype table >/dev/null 2>&1 || true
 fi
-rm -f "$_warm_wav"
+rm -rf "$_warm_wav" "$_warm_out"
 echo "    Done."
 
 # ---------------------------------------------------------------------------
