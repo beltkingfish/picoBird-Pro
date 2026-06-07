@@ -1,0 +1,6 @@
+{
+    "ap_ssid": "picoBirdPro",
+    "ap_password": "fieldguide",
+    "api_host": "192.168.4.1",
+    "api_port": 5000
+}

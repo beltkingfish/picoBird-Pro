@@ -1,26 +1,28 @@
 """
 picoBird Pro — PicoCalc client entry point.
 Boot order:
-  1. Init display + keyboard, show splash + I2C diagnostic
-  2. Scan for picoBirdPro AP (with retries)
-  3. Connect and hand off to UI
+  1. Load config.json (WiFi credentials, server address)
+  2. Init display + keyboard, show splash + I2C diagnostic
+  3. Scan for AP (with retries)
+  4. Connect and hand off to UI
 """
 import time
 import network
 import machine
+import json
 
 from lib.ili9488 import ILI9488
 from lib.keyboard import Keyboard
 from app.ui import UI
 
-# ── Network config ───────────────────────────────────────────────────────────
-AP_SSID_PREFIX = "picoBirdPro"   # matches any SSID starting with this
-AP_PASSWORD    = "fieldguide"    # set during Pi 5 installer (hostapd WPA key)
+# ── Defaults (overridden by config.json) ─────────────────────────────────────
+AP_SSID_PREFIX = "picoBirdPro"
+AP_PASSWORD    = "fieldguide"
 API_HOST       = "192.168.4.1"
 API_PORT       = 5000
 
-SCAN_RETRIES    = 6    # how many WiFi scans before giving up
-CONNECT_TIMEOUT = 20   # seconds to wait for DHCP after connect
+SCAN_RETRIES    = 6
+CONNECT_TIMEOUT = 20
 
 C_WHITE = (255, 255, 255)
 C_GREEN = (80, 200, 120)
@@ -29,22 +31,30 @@ C_GRAY  = (140, 140, 140)
 C_HEAD  = (80, 200, 120)
 
 
+def _load_config():
+    """Load config.json from the filesystem. Returns dict of settings."""
+    global AP_PASSWORD, API_HOST, API_PORT, AP_SSID_PREFIX
+    try:
+        with open("config.json") as f:
+            cfg = json.load(f)
+        AP_SSID_PREFIX = cfg.get("ap_ssid", AP_SSID_PREFIX)
+        AP_PASSWORD    = cfg.get("ap_password", AP_PASSWORD)
+        API_HOST       = cfg.get("api_host", API_HOST)
+        API_PORT       = int(cfg.get("api_port", API_PORT))
+    except Exception:
+        pass  # use defaults if config missing or malformed
+
+
 def _print(display, msg, y, color=C_WHITE):
-    """Overwrite a single text row on the splash screen."""
     display.fill_rect(0, y, 320, 10, 0, 0, 0)
     display.text(msg[:52], 4, y, fg=color)
 
 
 def _scan_for_ap(display, wlan):
-    """
-    Scan for a picoBirdPro AP.  Shows each attempt and all visible SSIDs on
-    the last attempt so the user can see what the PicoCalc actually hears.
-    Returns the matched SSID string or None.
-    """
     for attempt in range(1, SCAN_RETRIES + 1):
         _print(display, "Scanning ({}/{})...".format(attempt, SCAN_RETRIES), 70, C_GRAY)
         try:
-            nets = wlan.scan()  # [(ssid_bytes, bssid, ch, rssi, sec, hidden), ...]
+            nets = wlan.scan()
         except Exception:
             nets = []
 
@@ -61,7 +71,6 @@ def _scan_for_ap(display, wlan):
         if match:
             return match
 
-        # On last attempt show all visible SSIDs to help diagnose
         if attempt == SCAN_RETRIES and nets:
             visible = []
             for net in nets:
@@ -79,7 +88,6 @@ def _scan_for_ap(display, wlan):
 
 
 def _connect(display, wlan, ssid):
-    """Connect to ssid. Returns True on success."""
     _print(display, "Connecting to {}...".format(ssid), 70, C_WHITE)
     wlan.connect(ssid, AP_PASSWORD)
     deadline = time.time() + CONNECT_TIMEOUT
@@ -94,6 +102,8 @@ def _connect(display, wlan, ssid):
 
 
 def main():
+    _load_config()
+
     display = ILI9488()
     kb      = Keyboard()
 
@@ -102,21 +112,20 @@ def main():
     display.text("picoBird Pro", 10, 10, fg=C_HEAD)
     display.fill_rect(0, 26, 320, 1, 40, 100, 60)
 
-    # ── I2C diagnostic (keyboard) ────────────────────────────────────────────
+    # ── I2C diagnostic ───────────────────────────────────────────────────────
     found = kb.scan()
     if 0x1F in found:
         display.text("Keyboard OK (0x1F)", 4, 36, fg=C_GREEN)
     else:
         addrs = [hex(a) for a in found]
-        display.text("KB not found! Found: " + str(addrs), 4, 36, fg=C_RED)
+        display.text("KB not found! " + str(addrs), 4, 36, fg=C_RED)
 
     # ── WiFi ─────────────────────────────────────────────────────────────────
     display.text("Starting WiFi scan...", 4, 56, fg=C_GRAY)
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
-    time.sleep_ms(500)  # let radio settle
+    time.sleep_ms(500)
 
-    # Disconnect from any stale connection first
     if wlan.isconnected():
         wlan.disconnect()
         time.sleep(1)
@@ -130,7 +139,7 @@ def main():
         if connected:
             _print(display, "Connected!", 56, C_GREEN)
         else:
-            _print(display, "DHCP timeout. Continuing offline.", 56, C_RED)
+            _print(display, "DHCP timeout. Offline mode.", 56, C_RED)
     else:
         _print(display, "Pi 5 AP not found.", 70, C_RED)
         _print(display, "Is Pi 5 on & hostapd running?", 82, C_GRAY)
@@ -138,7 +147,6 @@ def main():
 
     time.sleep_ms(800)
 
-    # ── Hand off to UI ───────────────────────────────────────────────────────
     ui = UI(display, kb, API_HOST, API_PORT, connected=connected)
     ui.run()
 
