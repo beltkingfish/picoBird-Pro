@@ -68,7 +68,8 @@ print_header() {
 
 gen_password() {
     # 12-char alphanumeric random default (avoids ambiguous chars).
-    tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 12
+    # Use a subshell to swallow the SIGPIPE that head causes on tr.
+    (tr -dc 'A-Za-z0-9' < /dev/urandom 2>/dev/null || true) | head -c 12
 }
 
 detect_wifi_iface() {
@@ -78,7 +79,7 @@ detect_wifi_iface() {
         [ -e "$iface" ] && basename "$(dirname "$iface")" && return 0
     done
     # Fallback: any wlan* device
-    ip -o link show 2>/dev/null | grep -oE 'wlan[0-9]+' | head -1
+    ip -o link show 2>/dev/null | grep -oE 'wlan[0-9]+' | head -1 || true
 }
 
 validate_ebird_key() {
