@@ -1,11 +1,23 @@
 # picoBird Pro
 
-A two-device birding field guide:
+A two-device birding field guide built for the field:
 
 | Device | Role |
 |---|---|
-| **Raspberry Pi 5** (8 GB) | Backend server: SQLite, eBird API, BirdNET sound ID, WiFi AP |
-| **ClockworkPi PicoCalc** (Pico 2 W + ILI9488 320×320) | Client terminal: display + keyboard, talks to Pi 5 over WiFi |
+| **Raspberry Pi 5** (8 GB) | Backend: SQLite, eBird API v2, BirdNET sound ID, WiFi AP |
+| **ClockworkPi PicoCalc** (Pico 2 W + ILI9488 320×320) | Client: display + keyboard, talks to Pi over WiFi |
+
+---
+
+## Features
+
+- **Species search** — full-text search across the complete eBird taxonomy (~16,000 species)
+- **Log sightings** — one-press quick-log or a full form with notes/count/date
+- **My Sightings** — browse all logged observations, tap for detail
+- **Life List** — auto-maintained list of every unique species ever logged
+- **Sound ID** — record audio via a Rode Wireless Pro USB mic plugged into the Pi; BirdNET identifies the calls
+- **Offline-aware** — graceful messaging when WiFi drops; reconnects automatically
+- **Secure AP** — gunicorn binds only to the local AP address (`192.168.4.1`) and loopback; WPA2 CCMP only
 
 ---
 
@@ -14,10 +26,10 @@ A two-device birding field guide:
 ```
 PicoCalc  ───[WiFi 192.168.4.x]───>  Pi 5 AP (192.168.4.1:5000)
   MicroPython client                     Flask / SQLite / BirdNET
-  - species search (paginated)           - eBird taxonomy cache
-  - log observations                     - life list (auto-updated)
-  - browse life list                     - session management
-  - sound ID (I2S mic optional)          - BirdNET-Analyzer inference
+  - species search                        - eBird taxonomy cache (FTS5)
+  - log observations                      - life list (trigger-maintained)
+  - browse life list                      - BirdNET-Analyzer inference
+  - sound ID (USB mic on Pi)              - USB audio capture via arecord
 ```
 
 ---
@@ -25,39 +37,47 @@ PicoCalc  ───[WiFi 192.168.4.x]───>  Pi 5 AP (192.168.4.1:5000)
 ## Repository layout
 
 ```
-picoBirdPro/
-├── server/                   # Pi 5 — Python / Flask
+picoBird-Pro/
+├── server/
 │   ├── main.py               # App factory, blueprint registration
 │   ├── database.py           # SQLite schema + query helpers
-│   ├── ebird_api.py          # eBird API v2 client (cached)
+│   ├── ebird_api.py          # eBird API v2 client (TTL-cached)
 │   ├── birdnet.py            # BirdNET-Analyzer subprocess wrapper
+│   ├── audio.py              # USB mic discovery + arecord capture
+│   ├── passive_listener.py   # Background 5s-chunk BirdNET daemon
+│   ├── vitals.py             # System stats for e-ink display
 │   └── api/
-│       ├── species.py         # Search, sync taxonomy, nearby
-│       ├── observations.py    # CRUD for logged birds
-│       ├── sessions.py        # Birding session management
-│       ├── lifelist.py        # Life list + stats
-│       └── sound.py           # WAV upload → BirdNET detections
-├── client/                   # PicoCalc — MicroPython
-│   ├── main.py               # Boot: connect WiFi, launch UI
+│       ├── _validation.py    # Shared input clamping helpers
+│       ├── species.py        # Search, sync taxonomy, nearby
+│       ├── observations.py   # CRUD for logged birds
+│       ├── lifelist.py       # Life list + stats
+│       └── sound.py          # USB capture, passive listen, WAV upload
+├── client/
+│   ├── main.py               # Boot: load config, connect WiFi, launch UI
+│   ├── config.json           # WiFi + API host (edit without reflashing)
 │   ├── lib/
-│   │   ├── ili9488.py        # ILI9488 SPI display driver
-│   │   ├── keyboard.py       # STM32 I2C keyboard driver
-│   │   ├── sdcard.py         # SD card SPI driver
-│   │   └── http_client.py    # Minimal HTTP client (no urequests needed)
+│   │   ├── ili9488.py        # ILI9488 SPI display driver (RGB666, SPI1)
+│   │   └── keyboard.py       # STM32 I2C keyboard + joystick driver
 │   └── app/
-│       ├── screen.py          # Display helper, colour palette, text utils
-│       ├── ui.py              # Screen-stack UI manager
+│       ├── theme.py          # Centralized colours and layout constants
+│       ├── screen.py         # Screen base + stack manager
+│       ├── ui.py             # UI manager (WiFi check, ping helper)
+│       ├── http.py           # Hardened raw-socket HTTP client
 │       └── screens/
-│           ├── home.py         # Main menu
-│           ├── search.py       # Species search (paginated)
-│           ├── species_detail.py # Detail view + quick-log
-│           ├── observe.py      # Quick-log observation
-│           ├── lifelist.py     # Life list browser
-│           ├── sessions.py     # Session management
-│           └── sound.py        # Sound ID (I2S mic → BirdNET)
+│           ├── _list.py       # ScrollableListScreen base class
+│           ├── home.py        # Main menu + connection status
+│           ├── search.py      # Species search (paginated)
+│           ├── species_detail.py  # Detail view + quick-log (L key)
+│           ├── log_sighting.py    # Full log form (non-blocking close)
+│           ├── today.py       # My Sightings browser
+│           ├── lifelist.py    # Life list browser
+│           └── sound.py       # Sound ID (USB mic on Pi 5)
 └── setup/
-    ├── install.sh              # Pi 5 setup (hostapd, dnsmasq, venv, BirdNET)
-    └── picobird-pro.service    # systemd unit
+    ├── install.sh             # Full Pi 5 setup script (interactive)
+    ├── preflight.py           # Taxonomy sync with retry
+    ├── picobird-pro.service   # Gunicorn systemd unit
+    ├── picobird-pre.service   # Pre-flight (taxonomy sync) unit
+    └── picobird-wlan-ip.service  # Assigns 192.168.4.1 before AP starts
 ```
 
 ---
@@ -66,12 +86,12 @@ picoBirdPro/
 
 ### 1. Flash & SSH in
 
-Flash Raspberry Pi OS Lite (64-bit) to an SD card. Boot, SSH in.
+Flash **Raspberry Pi OS Lite (64-bit)** to an SD card. Boot, SSH in as your user.
 
 ### 2. Clone the repo
 
 ```bash
-git clone https://github.com/beltkingfish/picobird-pro /opt/picobird-pro-src
+sudo git clone https://github.com/beltkingfish/picobird-pro /opt/picobird-pro-src
 ```
 
 ### 3. Run the installer
@@ -81,38 +101,56 @@ cd /opt/picobird-pro-src
 sudo bash setup/install.sh
 ```
 
-This will:
-- Install `hostapd` + `dnsmasq` and configure the `wlan0` AP (`picoBirdPro` / `fieldguide`)
-- Clone BirdNET-Analyzer to `/opt/BirdNET-Analyzer`
-- Create a Python venv with Flask + Gunicorn
-- Install and enable the `picobird-pro` systemd service
+The installer is interactive. It will prompt you for:
 
-### 4. Set your eBird API key
+| Prompt | Notes |
+|---|---|
+| **eBird API key** | Get one free at [ebird.org/api/keygen](https://ebird.org/api/keygen). The installer validates it with a live API call and re-prompts on failure. |
+| **WiFi password** | Password for the `picoBirdPro` AP. A secure random default is suggested. |
+
+Then it automatically:
+- Detects your WiFi interface (no hardcoded `wlan0`)
+- Installs `hostapd` + `dnsmasq` and configures the `picoBirdPro` AP (WPA2 CCMP)
+- Creates a `picobird-wlan-ip` systemd service to assign `192.168.4.1/24`
+- Configures NetworkManager to leave the AP interface alone
+- Clones BirdNET-Analyzer to `/opt/BirdNET-Analyzer`
+- Creates a Python venv with Flask, Gunicorn, and all dependencies
+- Writes secrets (`/etc/hostapd/hostapd.conf`, systemd override) as `root:root 600`
+- Enables and starts `picobird-pro`, `picobird-pre`, `picobird-wlan-ip`
+- Sets up logrotate for access/error logs
+
+### 4. Verify
+
+```bash
+# API up?
+curl http://127.0.0.1:5000/api/ping
+# → {"status": "ok"}
+
+# Taxonomy loaded?
+curl "http://127.0.0.1:5000/api/species/search?q=robin&page=0"
+```
+
+If the taxonomy is empty, trigger a manual sync:
+
+```bash
+curl -X POST http://127.0.0.1:5000/api/species/sync
+```
+
+### 5. (Optional) Override USB audio device
+
+The installer writes `AUDIO_DEVICE=` (empty) to the service environment. With the
+Rode Wireless Pro receiver plugged in, the server auto-detects it. To force a
+specific ALSA device:
 
 ```bash
 sudo systemctl edit picobird-pro
 ```
 
-Add:
+Add (replacing `hw:1,0` with your device from `arecord -l`):
 ```ini
 [Service]
-Environment=EBIRD_API_KEY=your_key_here
+Environment=AUDIO_DEVICE=hw:1,0
 ```
-
-### 5. Start the server
-
-```bash
-sudo systemctl start picobird-pro
-sudo systemctl status picobird-pro
-```
-
-### 6. Sync the eBird taxonomy
-
-```bash
-curl -X POST http://localhost:5000/api/species/sync
-```
-
-This loads ~16,000 species into the local SQLite FTS index. Takes ~20 s on first run.
 
 ---
 
@@ -122,34 +160,62 @@ This loads ~16,000 species into the local SQLite FTS index. Takes ~20 s on first
 
 Flash the latest [MicroPython for Pico 2 W](https://micropython.org/download/RPI_PICO2_W/) to the PicoCalc.
 
-### 2. Copy client files
+### 2. Configure WiFi
 
-Copy the entire `client/` directory to the root of the Pico using [mpremote](https://docs.micropython.org/en/latest/reference/mpremote.html) or Thonny:
+Edit `client/config.json` before copying:
+
+```json
+{
+    "ap_ssid": "picoBirdPro",
+    "ap_password": "your-ap-password",
+    "api_host": "192.168.4.1",
+    "api_port": 5000
+}
+```
+
+Use whatever password you set during the installer.
+
+### 3. Copy client files
 
 ```bash
 mpremote connect /dev/ttyACM0 cp -r client/. :
 ```
 
-### 3. Verify wiring
+Or use Thonny to copy the `client/` directory to the root of the Pico.
 
-Check `client/main.py` pin constants match your PicoCalc:
+### 4. Verify wiring (PicoCalc default pins)
 
-| Constant | Default | Notes |
-|---|---|---|
-| `SPI_ID` | 0 | SPI bus for display |
-| `DISP_CS/DC/RST/BL` | 5/6/7/8 | ILI9488 chip-select, D/C, reset, backlight |
-| `KBD_SDA/SCL` | 20/21 | I2C to STM32 keyboard |
+| Component | Pins |
+|---|---|
+| ILI9488 display | SPI1: SCK=GP10, MOSI=GP11, CS=GP13, DC=GP14, RST=GP15, BL=GP12 |
+| STM32 keyboard | I2C1: SDA=GP6, SCL=GP7, addr=0x1F |
 
-### 4. Boot
+These match the PicoCalc hardware — no changes needed unless you have a modified board.
+
+### 5. Boot
 
 Power cycle the PicoCalc. It will:
-1. Init the display
-2. Connect to the `picoBirdPro` AP
-3. Launch the main menu
+1. Init the ILI9488 display (RGB666, 18-bit)
+2. Scan for and connect to the `picoBirdPro` AP
+3. Show the home screen with connection status
 
 ---
 
-## API Reference (Pi 5)
+## Sound ID (Rode Wireless Pro)
+
+1. Plug the Rode Wireless Pro USB receiver into the Pi 5.
+2. The Pi auto-detects it via `arecord -l` (no config needed).
+3. On the PicoCalc, open **Sound ID** from the main menu.
+4. The screen shows the detected mic and offers:
+   - **Listen 10s / 30s** — on-demand capture + BirdNET analysis
+   - **Passive On/Off** — continuous background detection (5s chunks, last 50 results kept)
+   - **View Detections** — browse passive results with species name, confidence %, and time
+
+Results are **show-only** — Sound ID detections are not written to your sighting log.
+
+---
+
+## API Reference
 
 | Method | Path | Description |
 |---|---|---|
@@ -158,42 +224,28 @@ Power cycle the PicoCalc. It will:
 | GET | `/api/species/<code>` | Species detail |
 | POST | `/api/species/sync` | Sync full eBird taxonomy |
 | GET | `/api/species/nearby?lat=&lng=&dist=25` | Nearby species from eBird |
-| GET | `/api/observations/` | List observations |
+| GET | `/api/observations/?limit=100&offset=0` | List observations |
 | POST | `/api/observations/` | Log an observation |
 | PATCH | `/api/observations/<id>` | Update observation |
 | DELETE | `/api/observations/<id>` | Delete observation |
-| GET | `/api/sessions/` | List sessions |
-| POST | `/api/sessions/` | Start a session |
-| PATCH | `/api/sessions/<id>/end` | End a session |
-| GET | `/api/sessions/<id>/summary` | Session summary |
 | GET | `/api/lifelist/` | Life list (paginated) |
-| GET | `/api/lifelist/check/<code>` | Lifer check |
 | GET | `/api/lifelist/stats` | Life list stats |
-| POST | `/api/sound/identify` | WAV → BirdNET detections |
+| GET | `/api/sound/device` | Detected USB mic (or null) |
+| POST | `/api/sound/capture?duration=10` | Record + BirdNET (3–30 s) |
+| POST | `/api/sound/listen` | Start/stop passive listener `{"action":"start"}` |
+| GET | `/api/sound/detections` | Recent passive detections |
+| POST | `/api/sound/identify` | Upload WAV → BirdNET detections |
 
 ---
 
-## Sound ID
-
-The PicoCalc Sound ID screen requires an I2S microphone (e.g. INMP441) wired to:
-- SCK → GP10, WS → GP11, SD → GP12
-
-Without a mic the screen shows a friendly error; all other features still work.
-
-The Pi 5 runs BirdNET-Analyzer as a subprocess. Results are returned ranked by confidence.
-
----
-
-## WiFi credentials
+## WiFi defaults
 
 | Setting | Default |
 |---|---|
 | SSID | `picoBirdPro` |
-| Password | `fieldguide` |
+| Password | *(set during installer — random default suggested)* |
 | Pi 5 IP | `192.168.4.1` |
 | Server port | `5000` |
-
-Change in `setup/install.sh` (AP side) and `client/main.py` (PicoCalc side).
 
 ---
 
