@@ -8,16 +8,18 @@ from app.screen import Screen
 from lib.keyboard import PRESSED, KEY_ESC, KEY_ENTER, KEY_UP, KEY_DOWN
 from app.http import post
 
-C_BG      = (0, 0, 0)
-C_FG      = (255, 255, 255)
-C_HEADER  = (80, 200, 120)
-C_DIM     = (100, 100, 100)
-C_SEL     = (120, 255, 160)
-C_SEL_BG  = (30, 90, 50)
-C_LABEL   = (140, 200, 255)
-C_OK      = (80, 255, 80)
-C_ERR     = (255, 80, 80)
-C_QUICKLOG = (255, 220, 80)   # gold highlight for quick-log hint
+from app import theme as T
+
+C_BG      = T.C_BG
+C_FG      = T.C_FG
+C_HEADER  = T.C_HEADER
+C_DIM     = T.C_DIM
+C_SEL     = T.C_SEL
+C_SEL_BG  = T.C_SEL_BG
+C_LABEL   = T.C_LABEL
+C_OK      = T.C_OK
+C_ERR     = T.C_ERR
+C_QUICKLOG = T.C_QUICKLOG   # gold highlight for quick-log hint
 
 ACTIONS = ["Log Sighting", "Back"]
 

@@ -1,7 +1,10 @@
 """Sound ID endpoint — accepts a WAV upload, returns BirdNET detections."""
 
+import logging
 from flask import Blueprint, request, jsonify
 from server import birdnet
+
+log = logging.getLogger(__name__)
 
 bp = Blueprint("sound", __name__)
 
@@ -37,6 +40,12 @@ def identify():
     try:
         detections = birdnet.analyze_bytes(wav_bytes, **kwargs)
     except RuntimeError as exc:
-        return jsonify({"error": str(exc)}), 503
+        # Expected "BirdNET unavailable / failed" class of error.
+        log.warning("BirdNET analysis failed: %s", exc)
+        return jsonify({"error": "sound identification unavailable"}), 503
+    except Exception as exc:
+        # Unexpected — log full detail server-side, return generic message.
+        log.exception("Unexpected error during sound identification")
+        return jsonify({"error": "internal error during analysis"}), 500
 
     return jsonify({"detections": detections})

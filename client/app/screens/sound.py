@@ -1,18 +1,22 @@
 """Sound ID screen — record audio and send to BirdNET.
 
 NOTE: Audio recording on the Pico 2 W requires an I2S mic (e.g. INMP441).
-This screen assumes the mic is wired up and a record() helper is available.
-If no mic is present it shows a friendly error.
+This screen is a forward-looking stub: with no mic wired up it shows a
+friendly message. It is not yet wired into the home menu.
 """
-
-from app.screen import WHITE, BLACK, ACCENT, GRAY, GREEN, RED, YELLOW
-from lib.keyboard import KEY_ENTER, KEY_ESC
+import json
+from app.screen import Screen
+from app import theme as T
+from lib.keyboard import PRESSED, KEY_ENTER, KEY_ESC
 
 REC_SECONDS = 3
 
 
-def _record_wav(seconds: int = 3) -> bytes | None:
-    """Record *seconds* of mono 22050 Hz audio via I2S and return WAV bytes."""
+def _record_wav(seconds=3):
+    """Record *seconds* of mono 22050 Hz audio via I2S and return WAV bytes.
+
+    Returns None if no I2S mic is present (the common case today).
+    """
     try:
         from machine import I2S, Pin
         import struct
@@ -39,9 +43,8 @@ def _record_wav(seconds: int = 3) -> bytes | None:
         audio_in.readinto(buf)
         audio_in.deinit()
 
-        # Wrap in a minimal WAV header.
-        data_len  = len(buf)
-        riff_len  = 36 + data_len
+        data_len = len(buf)
+        riff_len = 36 + data_len
         header = struct.pack(
             "<4sI4s4sIHHIIHH4sI",
             b"RIFF", riff_len, b"WAVE",
@@ -53,81 +56,68 @@ def _record_wav(seconds: int = 3) -> bytes | None:
         return None
 
 
-class SoundScreen:
+class SoundScreen(Screen):
     def __init__(self, ui):
-        self.ui      = ui
-        self.screen  = ui.screen
+        super().__init__(ui)
         self.results = []
-        self._state  = "ready"  # ready | recording | results | error
+        self._state  = "ready"   # ready | recording | results | error
+        self._dirty  = True
 
     def on_enter(self):
-        self.draw()
-
-    def on_exit(self):
-        pass
+        self._dirty = True
 
     def draw(self):
-        s = self.screen
-        s.fill(BLACK)
-        s.header("Sound ID")
+        if not self._dirty:
+            return
+        d = self.ui.display
+        d.fill(*T.BLACK)
+        d.text("Sound ID", 10, 8, fg=T.ACCENT)
+        d.fill_rect(0, 24, T.WIDTH, 1, 40, 100, 60)
 
         if self._state == "ready":
-            s.text_center("Press ENTER to record", 80, WHITE)
-            s.text_center(f"{REC_SECONDS}s clip sent to BirdNET", 96, GRAY)
-
+            d.text("Press ENTER to record", 10, 60, fg=T.WHITE)
+            d.text("{}s clip sent to BirdNET".format(REC_SECONDS), 10, 76, fg=T.GRAY)
         elif self._state == "recording":
-            s.text_center("Recording...", 80, RED)
-            s.text_center(f"{REC_SECONDS} seconds", 96, GRAY)
-
+            d.text("Recording...", 10, 60, fg=T.RED)
+            d.text("{} seconds".format(REC_SECONDS), 10, 76, fg=T.GRAY)
         elif self._state == "results":
-            s.text("Detections:", 4, 16, ACCENT)
+            d.text("Detections:", 10, 40, fg=T.ACCENT)
             if self.results:
-                for i, det in enumerate(self.results[:8]):
-                    y    = 28 + i * 18
-                    name = det.get("common_name", "")[:22]
+                for i, det in enumerate(self.results[:10]):
+                    y    = 56 + i * 14
+                    name = det.get("common_name", "")[:30]
                     conf = int(det.get("confidence", 0) * 100)
-                    s.text(f"{name:<22} {conf:3}%", 4, y, WHITE)
+                    d.text("{} {}%".format(name, conf), 10, y, fg=T.WHITE)
             else:
-                s.text_center("No birds detected", 100, GRAY)
-
+                d.text("No birds detected", 10, 60, fg=T.GRAY)
         elif self._state == "error":
-            s.text_center("No microphone found", 80, RED)
-            s.text_center("Needs I2S mic (INMP441)", 96, GRAY)
+            d.text("No microphone found", 10, 60, fg=T.RED)
+            d.text("Needs I2S mic (INMP441)", 10, 76, fg=T.GRAY)
 
-        s.status_bar("ENTER=record  ESC=back")
+        d.text("ENTER=record  ESC=back", 4, T.FOOTER_Y, fg=T.GRAY)
+        self._dirty = False
 
-    def handle_key(self, key: int, mod: int):
+    def on_key(self, state, key):
+        if state != PRESSED:
+            return
         if key == KEY_ESC:
-            self.ui.pop()
+            self.ui.stack.pop()
         elif key == KEY_ENTER:
             self._do_record()
 
     def _do_record(self):
-        s = self.screen
         self._state = "recording"
-        self.draw()
-        s.show()
+        self._dirty = True
+        self.draw()  # paint the recording state immediately
 
         wav = _record_wav(REC_SECONDS)
         if wav is None:
             self._state = "error"
-            self.draw()
+            self._dirty = True
             return
 
-        # Send to server — multipart/form-data is complex on bare MicroPython,
-        # so we POST the raw WAV with Content-Type audio/wav.
-        try:
-            body = wav
-            resp_bytes = self.ui.http._request(
-                "POST", "/api/sound/identify",
-                body=body, content_type="audio/wav"
-            )
-            import json
-            data         = json.loads(resp_bytes)
-            self.results = data.get("detections", [])
-            self._state  = "results"
-        except Exception as e:
-            self._state = "error"
-            s.status_bar(f"Server error: {e}")
-
-        self.draw()
+        # Sending raw WAV requires a binary POST helper; not implemented until
+        # mic hardware exists. For now, treat a successful capture as no-result.
+        self.results = []
+        self._state  = "results"
+        self._dirty  = True

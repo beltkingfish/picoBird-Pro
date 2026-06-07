@@ -125,8 +125,10 @@ _FONT5X8 = (
 CHAR_W = 5
 CHAR_H = 8
 
-# Glyph cache: keyed by (char, fg_rgb666, bg_rgb666) -> 120-byte BGR666 buffer
+# Glyph cache: keyed by (char, fg_rgb666, bg_rgb666) -> 120-byte BGR666 buffer.
+# Capped so a wide range of color combinations can't slowly exhaust the heap.
 _glyph_cache = {}
+_GLYPH_CACHE_MAX = 256
 
 
 def _rgb_to_bgr666(r, g, b):
@@ -150,6 +152,10 @@ def _make_glyph(char, fg, bg):
             pixel = fg if (cols[col] >> row) & 1 else bg
             buf[off:off+3] = pixel
             off += 3
+    # Bound cache growth: if full, drop everything and start fresh. Crude but
+    # cheap, and the working set re-populates within a frame or two.
+    if len(_glyph_cache) >= _GLYPH_CACHE_MAX:
+        _glyph_cache.clear()
     _glyph_cache[key] = bytes(buf)
     return _glyph_cache[key]
 

@@ -8,6 +8,12 @@ from typing import Any
 BASE_URL = "https://api.ebird.org/v2"
 API_KEY  = os.environ.get("EBIRD_API_KEY", "")
 
+
+def key_present() -> bool:
+    """True if an eBird API key is configured."""
+    return bool(API_KEY)
+
+
 # Simple in-process TTL cache to avoid hammering the API.
 _cache: dict[str, tuple[float, Any]] = {}
 CACHE_TTL = 3600  # seconds

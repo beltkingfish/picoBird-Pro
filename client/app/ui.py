@@ -4,16 +4,7 @@ Top-level UI controller — owns the screen stack and main loop.
 import time
 from app.screen import ScreenStack
 from app.screens.home import HomeScreen
-
-CHAR_W = 6  # 5 px glyph + 1 px gap
-CHAR_H = 8
-
-# Colors (r, g, b)
-C_BG    = (0, 0, 0)
-C_FG    = (255, 255, 255)
-C_GREEN = (80, 200, 120)
-C_RED   = (255, 80, 80)
-C_DIM   = (100, 100, 100)
+from app.http import get
 
 
 class UI:
@@ -24,6 +15,27 @@ class UI:
         self.api_port  = api_port
         self.connected = connected
         self.stack     = ScreenStack(display, kb)
+
+    def wifi_connected(self):
+        """True if the STA interface is currently associated with an AP."""
+        try:
+            import network
+            return network.WLAN(network.STA_IF).isconnected()
+        except Exception:
+            return False
+
+    def ping_server(self, timeout=3):
+        """Ping the API. Updates and returns self.connected so the UI can
+        recover from a dropped link/server without a reboot."""
+        if not self.wifi_connected():
+            self.connected = False
+            return False
+        try:
+            r = get(self.api_host, self.api_port, "/api/ping", timeout=timeout)
+            self.connected = bool(r and r.get("status") == "ok")
+        except Exception:
+            self.connected = False
+        return self.connected
 
     def run(self):
         self.stack.push(HomeScreen(self))

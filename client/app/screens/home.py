@@ -4,19 +4,21 @@ Home screen — main menu, connection status, and recently logged birds.
 import time
 from app.screen import Screen
 from lib.keyboard import PRESSED, HOLD, KEY_UP, KEY_DOWN, KEY_ENTER, KEY_ESC
-from app.http import get
+from app.http import get, as_list
 
 MENU_ITEMS = ["Today's Birds", "Search Species", "My Life List", "Sound ID", "Settings"]
 
-C_BG      = (0, 0, 0)
-C_FG      = (255, 255, 255)
-C_SEL_BG  = (30, 90, 50)
-C_SEL_FG  = (120, 255, 160)
-C_HEADER  = (80, 200, 120)
-C_DIM     = (100, 100, 100)
-C_WARN    = (255, 160, 0)
-C_ERR     = (255, 80, 80)
-C_RECENT  = (160, 220, 255)
+from app import theme as T
+
+C_BG      = T.C_BG
+C_FG      = T.C_FG
+C_SEL_BG  = T.C_SEL_BG
+C_SEL_FG  = T.C_SEL_FG
+C_HEADER  = T.C_HEADER
+C_DIM     = T.C_DIM
+C_WARN    = T.C_WARN
+C_ERR     = T.C_ERR
+C_RECENT  = T.C_RECENT
 
 ROW_H   = 20
 START_Y = 58   # menu starts here
@@ -49,26 +51,32 @@ class HomeScreen(Screen):
             self._load_recent()
 
     def _check_connection(self):
-        if not self.ui.connected:
+        # Always re-test so the device recovers from a dropped link/server
+        # without needing a reboot.
+        if not self.ui.wifi_connected():
+            self.ui.connected = False
             self._status  = "No WiFi"
             self._status_color = C_ERR
-            self._status2 = "Offline — search unavailable"
+            self._status2 = "Offline - search unavailable"
             self._status2_color = C_WARN
             return
 
         try:
             r = get(self.ui.api_host, self.ui.api_port, "/api/ping", timeout=3)
             if r and r.get("status") == "ok":
+                self.ui.connected = True
                 self._status  = "Pi 5 connected"
                 self._status_color = C_HEADER
                 self._status2 = ""
             else:
-                self._status  = "WiFi OK — Pi 5 API down"
+                self.ui.connected = False
+                self._status  = "WiFi OK - Pi 5 API down"
                 self._status_color = C_WARN
                 self._status2 = "Search & logging unavailable"
                 self._status2_color = C_DIM
         except Exception:
-            self._status  = "WiFi OK — Pi 5 unreachable"
+            self.ui.connected = False
+            self._status  = "WiFi OK - Pi 5 unreachable"
             self._status_color = C_WARN
             self._status2 = "Is picobird-pro service running?"
             self._status2_color = C_DIM
@@ -78,10 +86,7 @@ class HomeScreen(Screen):
         try:
             data = get(self.ui.api_host, self.ui.api_port,
                        "/api/observations/?limit=4&offset=0", timeout=4)
-            if data and isinstance(data, list):
-                self._recent = [o.get("common_name", "?") for o in data]
-            else:
-                self._recent = []
+            self._recent = [o.get("common_name", "?") for o in as_list(data)]
         except Exception:
             self._recent = []
 

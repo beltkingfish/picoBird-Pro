@@ -28,6 +28,12 @@ def create_app() -> Flask:
 
 
 if __name__ == "__main__":
+    import os
     app = create_app()
-    # Listen on all interfaces so the PicoCalc can reach us over the AP.
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    # Dev runner only. Defaults to loopback so it's never accidentally exposed.
+    # In production gunicorn binds 127.0.0.1 + 192.168.4.1 (the AP) — see
+    # setup/picobird-pro.service — so the API is reachable by the PicoCalc over
+    # the AP but never on whatever other network the Pi happens to join.
+    host = os.environ.get("PICOBIRD_HOST", "127.0.0.1")
+    port = int(os.environ.get("PICOBIRD_PORT", "5000"))
+    app.run(host=host, port=port, debug=False)

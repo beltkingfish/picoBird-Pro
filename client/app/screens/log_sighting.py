@@ -3,19 +3,22 @@ Log Sighting screen.
 Confirms species, lets user enter a count and optional note, then POSTs
 to /api/observations/.
 """
+import time
 from app.screen import Screen
 from lib.keyboard import PRESSED, KEY_ESC, KEY_ENTER, KEY_UP, KEY_DOWN, KEY_BACKSPACE
 from app.http import post
 
-C_BG     = (0, 0, 0)
-C_FG     = (255, 255, 255)
-C_HEADER = (80, 200, 120)
-C_DIM    = (100, 100, 100)
-C_SEL    = (120, 255, 160)
-C_SEL_BG = (30, 90, 50)
-C_CURSOR = (255, 255, 0)
-C_OK     = (80, 255, 80)
-C_ERR    = (255, 80, 80)
+from app import theme as T
+
+C_BG     = T.C_BG
+C_FG     = T.C_FG
+C_HEADER = T.C_HEADER
+C_DIM    = T.C_DIM
+C_SEL    = T.C_SEL
+C_SEL_BG = T.C_SEL_BG
+C_CURSOR = T.C_CURSOR
+C_OK     = T.C_OK
+C_ERR    = T.C_ERR
 
 FIELD_COUNT  = 0
 FIELD_NOTES  = 1
@@ -35,11 +38,18 @@ class LogSightingScreen(Screen):
         self._msg    = ""
         self._msg_color = C_DIM
         self._done   = False
+        self._close_at = None   # ticks_ms deadline to auto-close after success
 
     def on_enter(self):
         self._dirty = True
 
     def draw(self):
+        # Non-blocking auto-close after a successful log (no sleep in handlers).
+        if self._close_at is not None and time.ticks_diff(time.ticks_ms(), self._close_at) >= 0:
+            self._close_at = None
+            self.ui.stack.pop()   # back to species detail
+            self.ui.stack.pop()   # back to search
+            return
         if not self._dirty:
             return
         d = self.ui.display
@@ -144,10 +154,8 @@ class LogSightingScreen(Screen):
                 self._msg_color = C_OK
                 self._done = True
                 self._dirty = True
-                import time
-                time.sleep_ms(1200)
-                self.ui.stack.pop()  # back to species detail
-                self.ui.stack.pop()  # back to search
+                # Schedule a non-blocking close ~1.2s out; draw() handles it.
+                self._close_at = time.ticks_add(time.ticks_ms(), 1200)
             else:
                 self._msg = "Server error - try again"
                 self._msg_color = C_ERR

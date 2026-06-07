@@ -31,9 +31,10 @@ class ScreenStack:
         screen.on_enter()
 
     def pop(self):
-        if self._stack:
+        # Never pop the root screen — keep at least one screen on the stack so
+        # tick() always has a top to draw and route input to.
+        if len(self._stack) > 1:
             self._stack.pop()
-        if self._stack:
             self._stack[-1].on_enter()
 
     @property

@@ -20,7 +20,6 @@ import re
 import time
 import signal
 import subprocess
-import sqlite3
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -110,32 +109,32 @@ def _db_stats() -> dict:
     if not os.path.isfile(DB_PATH):
         return stats
     try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        row = conn.execute("SELECT COUNT(*) AS n FROM lifelist").fetchone()
+        # Reuse the canonical DB layer (handles connection lifecycle/WAL/etc).
+        from server.database import fetchone
+
+        row = fetchone("SELECT COUNT(*) AS n FROM lifelist")
         stats["lifers"] = row["n"] if row else 0
 
         today_ts = int(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
-        row = conn.execute(
+        row = fetchone(
             "SELECT COUNT(*) AS n FROM observations WHERE observed_at >= ?",
-            (today_ts,)
-        ).fetchone()
+            (today_ts,),
+        )
         stats["obs_today"] = row["n"] if row else 0
 
-        row = conn.execute(
+        row = fetchone(
             """
             SELECT o.observed_at, COALESCE(s.common_name, o.species_code) AS name
             FROM observations o
             LEFT JOIN species s ON s.species_code = o.species_code
             ORDER BY o.observed_at DESC LIMIT 1
             """
-        ).fetchone()
+        )
         if row:
-            stats["last_bird"] = row["name"][:22]
+            stats["last_bird"] = (row["name"] or "")[:22]
             stats["last_time"] = datetime.fromtimestamp(row["observed_at"]).strftime("%H:%M")
-        conn.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("DB stats query failed: %s", exc)
     return stats
 
 

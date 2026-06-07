@@ -4,14 +4,18 @@ Selecting a result opens the species detail screen.
 """
 from app.screen import Screen
 from lib.keyboard import PRESSED, HOLD, KEY_ESC, KEY_UP, KEY_DOWN, KEY_ENTER, KEY_BACKSPACE
-from app.http import get
+from app.http import get, quote, as_list
 
-C_BG     = (0, 0, 0)
-C_FG     = (255, 255, 255)
-C_HEADER = (80, 200, 120)
-C_DIM    = (100, 100, 100)
-C_SEL    = (120, 255, 160)
-C_CURSOR = (255, 255, 0)
+MAX_QUERY = 50  # cap query length to keep URLs and RAM sane
+
+from app import theme as T
+
+C_BG     = T.C_BG
+C_FG     = T.C_FG
+C_HEADER = T.C_HEADER
+C_DIM    = T.C_DIM
+C_SEL    = T.C_SEL
+C_CURSOR = T.C_CURSOR
 
 ROW_H   = 12
 LIST_Y  = 50
@@ -35,9 +39,9 @@ class SearchScreen(Screen):
             self._species = []
             return
         try:
-            path = "/api/species/search?q=" + self._query.replace(" ", "+") + "&limit=80"
+            path = "/api/species/search?q=" + quote(self._query) + "&page=0"
             data = get(self.ui.api_host, self.ui.api_port, path, timeout=5)
-            self._species = data if data and isinstance(data, list) else []
+            self._species = as_list(data)
         except Exception:
             self._species = []
         self._sel = 0
@@ -87,6 +91,7 @@ class SearchScreen(Screen):
                 self._off = self._sel - VISIBLE + 1
             self._dirty = True
         elif 0x20 <= key <= 0x7E and state == PRESSED:
-            self._query += chr(key)
-            self._search()
-            self._dirty = True
+            if len(self._query) < MAX_QUERY:
+                self._query += chr(key)
+                self._search()
+                self._dirty = True
