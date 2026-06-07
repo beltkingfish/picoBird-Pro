@@ -11,6 +11,11 @@ Pinout (BCM numbering):
   BUSY -> GPIO 24
 
 Panel: 296 x 128 px, black/white.
+
+Raspberry Pi 5 note: classic RPi.GPIO does not work on the Pi 5 (the RP1
+southbridge breaks its SOC-base-address probe). The installer therefore installs
+`python3-rpi-lgpio`, a drop-in that provides this exact `RPi.GPIO` API backed by
+lgpio — so the import below works unchanged on both Pi 4 and Pi 5.
 """
 
 import time
