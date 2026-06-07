@@ -1,16 +1,40 @@
-"""BirdNET-Analyzer integration — runs inference on WAV clips."""
+"""BirdNET-Analyzer integration — runs inference on WAV clips.
+
+Targets the modern birdnet_analyzer package (installed via
+`pip install /opt/BirdNET-Analyzer`), invoked as a module:
+    python -m birdnet_analyzer.analyze INPUT -o OUTPUT_DIR --rtype csv ...
+The legacy root-level `analyze.py` script no longer exists.
+"""
 
 import os
+import sys
+import csv
+import glob
 import subprocess
 import tempfile
-import json
-from pathlib import Path
+import importlib.util
 
-# Path to the BirdNET-Analyzer installation.
-# Install via: git clone https://github.com/kahst/BirdNET-Analyzer
-BIRDNET_DIR  = os.environ.get("BIRDNET_DIR", "/opt/BirdNET-Analyzer")
-BIRDNET_BIN  = os.path.join(BIRDNET_DIR, "analyze.py")
-MIN_CONF     = float(os.environ.get("BIRDNET_MIN_CONF", "0.5"))
+# Path to the BirdNET-Analyzer installation (kept for reference / cwd).
+BIRDNET_DIR = os.environ.get("BIRDNET_DIR", "/opt/BirdNET-Analyzer")
+MIN_CONF    = float(os.environ.get("BIRDNET_MIN_CONF", "0.5"))
+
+
+def _birdnet_available() -> bool:
+    """True if the birdnet_analyzer package is importable in this interpreter."""
+    try:
+        return importlib.util.find_spec("birdnet_analyzer") is not None
+    except Exception:
+        return False
+
+
+def _pick(row: dict, *names: str) -> str:
+    """Case-insensitive fetch of the first matching column from a CSV row."""
+    lowered = {k.lower().strip(): v for k, v in row.items() if k}
+    for n in names:
+        v = lowered.get(n.lower())
+        if v is not None and v != "":
+            return v
+    return ""
 
 
 def analyze_clip(
@@ -24,26 +48,24 @@ def analyze_clip(
     """
     Run BirdNET-Analyzer on *wav_path* and return a list of detections.
 
-    Each detection: {"species_code": str, "common_name": str,
-                     "sci_name": str, "confidence": float,
-                     "start_s": float, "end_s": float}
+    Each detection: {"common_name": str, "sci_name": str,
+                     "confidence": float, "start_s": float, "end_s": float}
     """
-    if not os.path.isfile(BIRDNET_BIN):
+    if not _birdnet_available():
         raise RuntimeError(
-            f"BirdNET-Analyzer not found at {BIRDNET_DIR}. "
-            "Run setup/install.sh or set BIRDNET_DIR."
+            "birdnet_analyzer package not installed. "
+            "Run setup/install.sh (pip install /opt/BirdNET-Analyzer)."
         )
 
-    with tempfile.TemporaryDirectory() as tmp:
-        out_path = os.path.join(tmp, "results.json")
+    with tempfile.TemporaryDirectory() as out_dir:
         cmd = [
-            "python3", BIRDNET_BIN,
-            "--i",       wav_path,
-            "--o",       out_path,
+            sys.executable, "-m", "birdnet_analyzer.analyze",
+            wav_path,
+            "-o",         out_dir,
             "--min_conf", str(min_conf),
-            "--rtype",   "json",
+            "--rtype",    "csv",
         ]
-        if lat is not None:
+        if lat is not None and lon is not None:
             cmd += ["--lat", str(lat), "--lon", str(lon)]
         if week is not None:
             cmd += ["--week", str(week)]
@@ -52,26 +74,42 @@ def analyze_clip(
             cmd,
             capture_output=True,
             text=True,
-            cwd=BIRDNET_DIR,
-            timeout=60,
+            cwd=BIRDNET_DIR if os.path.isdir(BIRDNET_DIR) else None,
+            timeout=90,
         )
         if result.returncode != 0:
-            raise RuntimeError(f"BirdNET failed: {result.stderr[:500]}")
+            raise RuntimeError(
+                "BirdNET failed: {}".format((result.stderr or result.stdout)[:500])
+            )
 
-        if not os.path.isfile(out_path):
+        # The CSV result type writes one .csv per input file into out_dir.
+        csv_files = glob.glob(os.path.join(out_dir, "*.csv"))
+        if not csv_files:
             return []
 
-        raw = json.loads(Path(out_path).read_text())
-
-    detections: list[dict] = []
-    for entry in raw:
-        detections.append({
-            "common_name":   entry.get("common_name", ""),
-            "sci_name":      entry.get("scientific_name", ""),
-            "confidence":    round(float(entry.get("confidence", 0)), 4),
-            "start_s":       entry.get("start_time", 0),
-            "end_s":         entry.get("end_time",   3),
-        })
+        detections: list[dict] = []
+        for path in csv_files:
+            with open(path, newline="") as f:
+                for entry in csv.DictReader(f):
+                    try:
+                        conf = float(_pick(entry, "confidence") or 0)
+                    except ValueError:
+                        conf = 0.0
+                    try:
+                        start_s = float(_pick(entry, "start (s)", "start_time", "start") or 0)
+                    except ValueError:
+                        start_s = 0.0
+                    try:
+                        end_s = float(_pick(entry, "end (s)", "end_time", "end") or 3)
+                    except ValueError:
+                        end_s = 3.0
+                    detections.append({
+                        "common_name": _pick(entry, "common name", "common_name"),
+                        "sci_name":    _pick(entry, "scientific name", "scientific_name"),
+                        "confidence":  round(conf, 4),
+                        "start_s":     start_s,
+                        "end_s":       end_s,
+                    })
 
     # Sort by confidence descending, return top N.
     detections.sort(key=lambda x: x["confidence"], reverse=True)

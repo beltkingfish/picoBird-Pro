@@ -100,8 +100,12 @@ def _server_ok() -> bool:
 
 
 def _birdnet_ok() -> bool:
-    birdnet_dir = os.environ.get("BIRDNET_DIR", "/opt/BirdNET-Analyzer")
-    return os.path.isfile(os.path.join(birdnet_dir, "analyze.py"))
+    """True if the birdnet_analyzer package is importable (modern layout)."""
+    try:
+        import importlib.util
+        return importlib.util.find_spec("birdnet_analyzer") is not None
+    except Exception:
+        return False
 
 
 def _db_stats() -> dict:
