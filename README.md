@@ -88,13 +88,21 @@ picoBird-Pro/
 
 Flash **Raspberry Pi OS Lite (64-bit)** to an SD card. Boot, SSH in as your user.
 
-### 2. Clone the repo
+### 2. Install git
+
+Raspberry Pi OS Lite doesn't include git by default:
+
+```bash
+sudo apt update && sudo apt install -y git
+```
+
+### 3. Clone the repo
 
 ```bash
 sudo git clone https://github.com/beltkingfish/picobird-pro /opt/picobird-pro-src
 ```
 
-### 3. Run the installer
+### 4. Run the installer
 
 ```bash
 cd /opt/picobird-pro-src
@@ -119,7 +127,7 @@ Then it automatically:
 - Enables and starts `picobird-pro`, `picobird-pre`, `picobird-wlan-ip`
 - Sets up logrotate for access/error logs
 
-### 4. Verify
+### 5. Verify
 
 ```bash
 # API up?
@@ -136,7 +144,7 @@ If the taxonomy is empty, trigger a manual sync:
 curl -X POST http://127.0.0.1:5000/api/species/sync
 ```
 
-### 5. (Optional) Override USB audio device
+### 6. (Optional) Override USB audio device
 
 The installer writes `AUDIO_DEVICE=` (empty) to the service environment. With the
 Rode Wireless Pro receiver plugged in, the server auto-detects it. To force a
@@ -246,6 +254,24 @@ Results are **show-only** — Sound ID detections are not written to your sighti
 | Password | *(set during installer — random default suggested)* |
 | Pi 5 IP | `192.168.4.1` |
 | Server port | `5000` |
+
+---
+
+## Updating
+
+To pull the latest code and restart the service:
+
+```bash
+cd /opt/picobird-pro-src
+sudo git pull
+sudo systemctl restart picobird-pro
+```
+
+Or as a one-liner:
+
+```bash
+sudo git -C /opt/picobird-pro-src pull && sudo systemctl restart picobird-pro
+```
 
 ---
 
