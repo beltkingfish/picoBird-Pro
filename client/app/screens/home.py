@@ -160,6 +160,7 @@ class HomeScreen(Screen):
         from app.screens.today import TodayScreen
         from app.screens.search import SearchScreen
         from app.screens.lifelist import LifeListScreen
+        from app.screens.sound import SoundScreen
 
         if self._sel == 0:
             self.ui.stack.push(TodayScreen(self.ui))
@@ -167,6 +168,8 @@ class HomeScreen(Screen):
             self.ui.stack.push(SearchScreen(self.ui))
         elif self._sel == 2:
             self.ui.stack.push(LifeListScreen(self.ui))
+        elif self._sel == 3:
+            self.ui.stack.push(SoundScreen(self.ui))
         else:
             self._status2 = MENU_ITEMS[self._sel] + ": coming soon"
             self._status2_color = C_WARN

@@ -219,6 +219,7 @@ apt-get install -y --no-install-recommends \
     python3-rpi.gpio python3-spidev \
     hostapd dnsmasq \
     git ffmpeg \
+    alsa-utils \
     libopenblas-dev \
     libopenjp2-7 libjpeg-dev libfreetype-dev \
     fonts-dejavu-core
@@ -387,6 +388,9 @@ for svc in picobird-pro picobird-pre; do
     cat > /etc/systemd/system/${svc}.service.d/override.conf <<EOF
 [Service]
 Environment=EBIRD_API_KEY=$EBIRD_API_KEY
+# Set AUDIO_DEVICE to override auto-detection of the USB mic (e.g. hw:1,0).
+# Leave empty to auto-detect the first USB audio capture device.
+Environment=AUDIO_DEVICE=
 EOF
     # Contains the eBird API key — keep it root-only.
     chown root:root /etc/systemd/system/${svc}.service.d/override.conf
