@@ -1,9 +1,15 @@
 """Species search and lookup endpoints."""
 
 import math
+import logging
 from flask import Blueprint, request, jsonify
 from server.database import fetchall, fetchone, get_db
+from server.api._validation import (
+    clamp_int, parse_float, MAX_PAGE, MAX_DIST, valid_lat, valid_lng,
+)
 from server import ebird_api
+
+log = logging.getLogger(__name__)
 
 bp = Blueprint("species", __name__)
 
@@ -19,7 +25,7 @@ def search():
     DB has no species loaded yet.
     """
     q    = request.args.get("q", "").strip()
-    page = int(request.args.get("page", 0))
+    page = clamp_int(request.args.get("page"), 0, 0, MAX_PAGE)
 
     if not q:
         return jsonify({"results": [], "total": 0, "page": page})
@@ -63,7 +69,8 @@ def get_species(code: str):
     try:
         info = ebird_api.species_info(code)
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 502
+        log.warning("eBird species_info(%s) failed: %s", code, exc)
+        return jsonify({"error": "upstream eBird lookup failed"}), 502
 
     if not info:
         return jsonify({"error": "species not found"}), 404
@@ -87,7 +94,8 @@ def sync_taxonomy():
     try:
         taxonomy = ebird_api.species_list()
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 502
+        log.warning("eBird taxonomy sync failed: %s", exc)
+        return jsonify({"error": "upstream eBird sync failed"}), 502
 
     upserted = 0
     with get_db() as conn:
@@ -121,17 +129,17 @@ def sync_taxonomy():
 @bp.get("/nearby")
 def nearby():
     """GET /api/species/nearby?lat=&lng=&dist=25"""
-    try:
-        lat  = float(request.args["lat"])
-        lng  = float(request.args["lng"])
-        dist = int(request.args.get("dist", 25))
-    except (KeyError, ValueError):
-        return jsonify({"error": "lat and lng are required"}), 400
+    lat  = parse_float(request.args.get("lat"))
+    lng  = parse_float(request.args.get("lng"))
+    dist = clamp_int(request.args.get("dist"), 25, 1, MAX_DIST)
+    if not valid_lat(lat) or not valid_lng(lng):
+        return jsonify({"error": "valid lat (-90..90) and lng (-180..180) required"}), 400
 
     try:
         obs = ebird_api.nearby_observations(lat, lng, dist)
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 502
+        log.warning("eBird nearby(%s,%s) failed: %s", lat, lng, exc)
+        return jsonify({"error": "upstream eBird lookup failed"}), 502
 
     # Deduplicate by species code.
     seen: set[str] = set()

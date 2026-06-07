@@ -2,6 +2,7 @@
 
 from flask import Blueprint, request, jsonify
 from server.database import fetchall, fetchone
+from server.api._validation import clamp_int, MAX_PAGE
 
 bp = Blueprint("lifelist", __name__)
 
@@ -9,7 +10,7 @@ bp = Blueprint("lifelist", __name__)
 @bp.get("/")
 def get_lifelist():
     """GET /api/lifelist/?page=0"""
-    page  = int(request.args.get("page", 0))
+    page  = clamp_int(request.args.get("page"), 0, 0, MAX_PAGE)
     limit = 50
     rows  = fetchall(
         """

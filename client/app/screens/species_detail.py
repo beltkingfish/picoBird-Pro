@@ -1,79 +1,135 @@
-"""Species detail screen — shows info + lifer status + quick-log button."""
+"""
+Species detail screen.
+Shows name, family, sci name.
+Quick-log: press L or joystick center to log count=1 instantly.
+Full log: navigate to "Log Sighting" for count + notes.
+"""
+from app.screen import Screen
+from lib.keyboard import PRESSED, KEY_ESC, KEY_ENTER, KEY_UP, KEY_DOWN
+from app.http import post
 
-from app.screen import WHITE, BLACK, ACCENT, GRAY, GREEN, RED, YELLOW
-from lib.keyboard import KEY_ENTER, KEY_ESC, KEY_UP, KEY_DOWN
+from app import theme as T
+
+C_BG      = T.C_BG
+C_FG      = T.C_FG
+C_HEADER  = T.C_HEADER
+C_DIM     = T.C_DIM
+C_SEL     = T.C_SEL
+C_SEL_BG  = T.C_SEL_BG
+C_LABEL   = T.C_LABEL
+C_OK      = T.C_OK
+C_ERR     = T.C_ERR
+C_QUICKLOG = T.C_QUICKLOG   # gold highlight for quick-log hint
+
+ACTIONS = ["Log Sighting", "Back"]
 
 
-class SpeciesDetailScreen:
-    def __init__(self, ui, species_code: str):
-        self.ui           = ui
-        self.screen       = ui.screen
-        self.code         = species_code
-        self.info: dict   = {}
-        self.is_lifer     = False
-        self.sel          = 0  # 0=Log it, 1=Back
+class SpeciesDetailScreen(Screen):
+    def __init__(self, ui, species):
+        super().__init__(ui)
+        self._code   = species.get("species_code", species.get("speciesCode", ""))
+        self._common = species.get("common_name",  species.get("comName", "Unknown"))
+        self._sci    = species.get("sci_name",     species.get("sciName", ""))
+        self._family = species.get("family_name",  species.get("familyComName", ""))
+        self._sel    = 0
+        self._dirty  = True
+        self._msg    = ""
+        self._msg_color = C_DIM
 
     def on_enter(self):
-        try:
-            self.info = self.ui.http.get_json(f"/api/species/{self.code}")
-            lifer_data = self.ui.http.get_json(f"/api/lifelist/check/{self.code}")
-            self.is_lifer = lifer_data.get("lifer", True)
-        except Exception:
-            pass
-        self.draw()
-
-    def on_exit(self):
-        pass
+        self._dirty = True
 
     def draw(self):
-        s = self.screen
-        s.fill(BLACK)
-        s.header("Species")
+        if not self._dirty:
+            return
+        d = self.ui.display
+        d.fill(*C_BG)
 
-        common = self.info.get("common_name", self.code)
-        sci    = self.info.get("sci_name", "")
-        family = self.info.get("family_name", "")
+        # Species name (wrap if long)
+        name = self._common
+        if len(name) <= 44:
+            d.text(name, 4, 8, fg=C_HEADER)
+            y = 22
+        else:
+            d.text(name[:44], 4, 8, fg=C_HEADER)
+            d.text(name[44:88], 4, 18, fg=C_HEADER)
+            y = 32
 
-        # Common name (large)
-        s.text(common[:30], 4, 18, WHITE, BLACK, 1)
-        s.text(sci[:30],    4, 30, GRAY,  BLACK, 1)
-        s.text(family[:28], 4, 42, GRAY,  BLACK, 1)
+        d.fill_rect(0, y, 320, 1, 40, 100, 60)
+        y += 6
 
-        lifer_label = "NEW LIFER!" if self.is_lifer else "In life list"
-        lifer_color = GREEN if self.is_lifer else ACCENT
-        s.text(lifer_label, 4, 58, lifer_color)
+        # Scientific name
+        d.text("Sci:", 4, y, fg=C_LABEL)
+        d.text(self._sci[:42], 30, y, fg=C_DIM)
+        y += 14
 
-        # Buttons
-        buttons = ["Log Observation", "Back"]
-        for i, label in enumerate(buttons):
-            y  = 90 + i * 24
-            bg = ACCENT if i == self.sel else BLACK
-            fg = BLACK  if i == self.sel else WHITE
-            s.fill_rect(4, y, s.width - 8, 20, bg)
-            s.text(label, 8, y + 6, fg, bg)
+        # Family
+        if self._family:
+            d.text("Family:", 4, y, fg=C_LABEL)
+            d.text(self._family[:36], 50, y, fg=C_DIM)
+            y += 14
 
-        s.status_bar("ENTER=select  ESC=back")
+        # Species code
+        d.text("Code:", 4, y, fg=C_LABEL)
+        d.text(self._code, 40, y, fg=C_DIM)
+        y += 16
 
-    def handle_key(self, key: int, mod: int):
-        if key == KEY_UP:
-            self.sel = (self.sel - 1) % 2
-            self.draw()
-        elif key == KEY_DOWN:
-            self.sel = (self.sel + 1) % 2
-            self.draw()
-        elif key == KEY_ENTER:
-            if self.sel == 0:
-                self._log_observation()
+        # Quick-log hint
+        d.fill_rect(0, y, 320, 1, 60, 60, 20)
+        y += 6
+        d.text("Quick-log: press L  (count=1, no notes)", 4, y, fg=C_QUICKLOG)
+        y += 14
+
+        d.fill_rect(0, y, 320, 1, 40, 60, 40)
+        y += 8
+
+        # Action menu
+        for i, action in enumerate(ACTIONS):
+            ay = y + i * 22
+            if i == self._sel:
+                d.fill_rect(0, ay - 2, 320, 20, *C_SEL_BG)
+                d.text("> " + action, 10, ay, fg=C_SEL)
             else:
-                self.ui.pop()
-        elif key == KEY_ESC:
-            self.ui.pop()
+                d.text("  " + action, 10, ay, fg=C_FG)
 
-    def _log_observation(self):
+        if self._msg:
+            d.text(self._msg[:50], 4, 288, fg=self._msg_color)
+
+        d.text("L=quick-log  Enter=select  Esc=back", 4, 306, fg=C_DIM)
+        self._dirty = False
+
+    def on_key(self, state, key):
+        if state != PRESSED:
+            return
+        if key == KEY_ESC:
+            self.ui.stack.pop()
+        elif key == ord('l') or key == ord('L'):
+            self._quick_log()
+        elif key == KEY_UP:
+            self._sel = (self._sel - 1) % len(ACTIONS)
+            self._dirty = True
+        elif key == KEY_DOWN:
+            self._sel = (self._sel + 1) % len(ACTIONS)
+            self._dirty = True
+        elif key == KEY_ENTER:
+            if self._sel == 0:
+                from app.screens.log_sighting import LogSightingScreen
+                self.ui.stack.push(LogSightingScreen(self.ui, self._code, self._common))
+            else:
+                self.ui.stack.pop()
+
+    def _quick_log(self):
+        """Log count=1 immediately with no notes — one keypress in the field."""
         try:
-            self.ui.http.post_json("/api/observations/", {"species_code": self.code})
-            self.screen.status_bar("Logged!")
-            self.screen.show()
+            result = post(self.ui.api_host, self.ui.api_port,
+                          "/api/observations/", {"species_code": self._code, "count": 1})
+            if result:
+                self._msg = "Logged! (quick)"
+                self._msg_color = C_OK
+            else:
+                self._msg = "Server error"
+                self._msg_color = C_ERR
         except Exception as e:
-            self.screen.status_bar(f"Error: {e}")
-            self.screen.show()
+            self._msg = str(e)[:48]
+            self._msg_color = C_ERR
+        self._dirty = True

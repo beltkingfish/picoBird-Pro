@@ -1,133 +1,202 @@
-"""Sound ID screen — record audio and send to BirdNET.
+"""Sound ID screen — trigger Pi-side USB mic capture and display BirdNET results."""
+import time
+from app.screen import Screen
+from app import theme as T
+from app.http import get, post
+from lib.keyboard import PRESSED, HOLD, KEY_UP, KEY_DOWN, KEY_ENTER, KEY_ESC
 
-NOTE: Audio recording on the Pico 2 W requires an I2S mic (e.g. INMP441).
-This screen assumes the mic is wired up and a record() helper is available.
-If no mic is present it shows a friendly error.
-"""
+MENU = ["Listen 10s", "Listen 30s", "Passive On/Off", "View Detections"]
 
-from app.screen import WHITE, BLACK, ACCENT, GRAY, GREEN, RED, YELLOW
-from lib.keyboard import KEY_ENTER, KEY_ESC
-
-REC_SECONDS = 3
-
-
-def _record_wav(seconds: int = 3) -> bytes | None:
-    """Record *seconds* of mono 22050 Hz audio via I2S and return WAV bytes."""
-    try:
-        from machine import I2S, Pin
-        import struct
-
-        I2S_ID  = 0
-        SCK_PIN = 10
-        WS_PIN  = 11
-        SD_PIN  = 12
-        RATE    = 22050
-        SAMPLES = RATE * seconds
-
-        audio_in = I2S(
-            I2S_ID,
-            sck=Pin(SCK_PIN),
-            ws=Pin(WS_PIN),
-            sd=Pin(SD_PIN),
-            mode=I2S.RX,
-            bits=16,
-            format=I2S.MONO,
-            rate=RATE,
-            ibuf=4096,
-        )
-        buf = bytearray(SAMPLES * 2)
-        audio_in.readinto(buf)
-        audio_in.deinit()
-
-        # Wrap in a minimal WAV header.
-        data_len  = len(buf)
-        riff_len  = 36 + data_len
-        header = struct.pack(
-            "<4sI4s4sIHHIIHH4sI",
-            b"RIFF", riff_len, b"WAVE",
-            b"fmt ", 16, 1, 1, RATE, RATE * 2, 2, 16,
-            b"data", data_len,
-        )
-        return header + bytes(buf)
-    except Exception:
-        return None
+_DURATIONS = {0: 10, 1: 30}   # menu index → seconds for capture items
 
 
-class SoundScreen:
+class SoundScreen(Screen):
     def __init__(self, ui):
-        self.ui      = ui
-        self.screen  = ui.screen
-        self.results = []
-        self._state  = "ready"  # ready | recording | results | error
+        super().__init__(ui)
+        self._sel         = 0
+        self._dirty       = True
+        self._device      = None   # None means not checked yet; "" means absent
+        self._state       = "menu"   # menu | capturing | results | passive_msg | error
+        self._msg         = ""
+        self._results     = []       # list of detection dicts
+        self._passive_on  = False
+        self._scroll_off  = 0
 
     def on_enter(self):
-        self.draw()
+        self._dirty = True
+        self._check_device()
 
-    def on_exit(self):
-        pass
+    # ── Data ──────────────────────────────────────────────────────────────────
+
+    def _check_device(self):
+        if not self.ui.connected:
+            self._device = ""
+            return
+        try:
+            data = get(self.ui.api_host, self.ui.api_port, "/api/sound/device", timeout=4)
+            self._device = (data or {}).get("device") or ""
+        except Exception:
+            self._device = ""
+
+    def _capture(self, duration):
+        self._state = "capturing"
+        self._msg   = "Recording {}s...".format(duration)
+        self._dirty = True
+        self.draw()
+        try:
+            path = "/api/sound/capture?duration={}".format(duration)
+            data = get(self.ui.api_host, self.ui.api_port, path,
+                       timeout=duration + 15)
+            if data and "detections" in data:
+                self._results = data["detections"]
+                self._state   = "results"
+                self._scroll_off = 0
+            else:
+                self._state = "error"
+                self._msg   = "Capture failed or no response"
+        except Exception:
+            self._state = "error"
+            self._msg   = "Connection error during capture"
+        self._dirty = True
+
+    def _toggle_passive(self):
+        action = "stop" if self._passive_on else "start"
+        try:
+            data = post(self.ui.api_host, self.ui.api_port,
+                        "/api/sound/listen", {"action": action}, timeout=5)
+            status = (data or {}).get("status", "")
+            self._passive_on = (status == "running")
+            self._msg  = "Passive: " + ("ON" if self._passive_on else "OFF")
+        except Exception:
+            self._msg = "Could not toggle passive mode"
+        self._state = "passive_msg"
+        self._dirty = True
+
+    def _view_detections(self):
+        try:
+            data = get(self.ui.api_host, self.ui.api_port,
+                       "/api/sound/detections", timeout=5)
+            if data:
+                self._results    = (data.get("detections") or [])
+                self._passive_on = data.get("status") == "running"
+            else:
+                self._results = []
+            self._state      = "results"
+            self._scroll_off = 0
+        except Exception:
+            self._state = "error"
+            self._msg   = "Could not fetch detections"
+        self._dirty = True
+
+    # ── Drawing ───────────────────────────────────────────────────────────────
 
     def draw(self):
-        s = self.screen
-        s.fill(BLACK)
-        s.header("Sound ID")
+        if not self._dirty:
+            return
+        d = self.ui.display
+        d.fill(*T.C_BG)
+        d.text("Sound ID", 10, 8, fg=T.C_HEADER)
+        d.fill_rect(0, 24, T.WIDTH, 1, 40, 100, 60)
 
-        if self._state == "ready":
-            s.text_center("Press ENTER to record", 80, WHITE)
-            s.text_center(f"{REC_SECONDS}s clip sent to BirdNET", 96, GRAY)
-
-        elif self._state == "recording":
-            s.text_center("Recording...", 80, RED)
-            s.text_center(f"{REC_SECONDS} seconds", 96, GRAY)
-
-        elif self._state == "results":
-            s.text("Detections:", 4, 16, ACCENT)
-            if self.results:
-                for i, det in enumerate(self.results[:8]):
-                    y    = 28 + i * 18
-                    name = det.get("common_name", "")[:22]
-                    conf = int(det.get("confidence", 0) * 100)
-                    s.text(f"{name:<22} {conf:3}%", 4, y, WHITE)
-            else:
-                s.text_center("No birds detected", 100, GRAY)
-
+        if not self.ui.connected:
+            d.text("Not connected to Pi 5", 10, 50, fg=T.C_ERR)
+            d.text("Connect WiFi and try again", 10, 64, fg=T.C_DIM)
+        elif self._device == "":
+            d.text("No USB mic connected", 10, 50, fg=T.C_WARN)
+            d.text("Plug Rode receiver into Pi 5", 10, 64, fg=T.C_DIM)
+            d.text("then re-open this screen", 10, 74, fg=T.C_DIM)
+        elif self._state == "menu":
+            d.text("Mic: " + self._device[:36], 10, 34, fg=T.C_DIM)
+            passive_label = "Passive: " + ("ON" if self._passive_on else "off")
+            for i, item in enumerate(MENU):
+                label = item if i != 2 else passive_label
+                y = 56 + i * 20
+                if i == self._sel:
+                    d.fill_rect(0, y - 2, T.WIDTH, 18, *T.C_SEL_BG)
+                    d.text("> " + label, 10, y, fg=T.C_SEL_FG)
+                else:
+                    d.text("  " + label, 10, y, fg=T.C_FG)
+        elif self._state == "capturing":
+            d.text(self._msg, 10, 60, fg=T.C_WARN)
+            d.text("Please wait...", 10, 76, fg=T.C_DIM)
+        elif self._state == "passive_msg":
+            d.text(self._msg, 10, 60, fg=T.C_HEADER)
+            d.text("Press any key", 10, 76, fg=T.C_DIM)
         elif self._state == "error":
-            s.text_center("No microphone found", 80, RED)
-            s.text_center("Needs I2S mic (INMP441)", 96, GRAY)
-
-        s.status_bar("ENTER=record  ESC=back")
-
-    def handle_key(self, key: int, mod: int):
-        if key == KEY_ESC:
-            self.ui.pop()
-        elif key == KEY_ENTER:
-            self._do_record()
-
-    def _do_record(self):
-        s = self.screen
-        self._state = "recording"
-        self.draw()
-        s.show()
-
-        wav = _record_wav(REC_SECONDS)
-        if wav is None:
-            self._state = "error"
-            self.draw()
+            d.text("Error:", 10, 50, fg=T.C_ERR)
+            d.text(self._msg[:44], 10, 64, fg=T.C_DIM)
+            d.text("Press any key", 10, 80, fg=T.C_DIM)
+        elif self._state == "results":
+            self._draw_results(d)
+            self._dirty = False
             return
 
-        # Send to server — multipart/form-data is complex on bare MicroPython,
-        # so we POST the raw WAV with Content-Type audio/wav.
-        try:
-            body = wav
-            resp_bytes = self.ui.http._request(
-                "POST", "/api/sound/identify",
-                body=body, content_type="audio/wav"
-            )
-            import json
-            data         = json.loads(resp_bytes)
-            self.results = data.get("detections", [])
-            self._state  = "results"
-        except Exception as e:
-            self._state = "error"
-            s.status_bar(f"Server error: {e}")
+        d.text("Up/Dn=nav  Enter=select  Esc=back", 4, T.FOOTER_Y, fg=T.C_DIM)
+        self._dirty = False
 
-        self.draw()
+    def _draw_results(self, d):
+        VISIBLE = 18
+        d.text("Detections:", 10, 32, fg=T.C_HEADER)
+        if not self._results:
+            d.text("No birds detected", 10, 56, fg=T.C_DIM)
+        else:
+            for i in range(VISIBLE):
+                idx = self._scroll_off + i
+                if idx >= len(self._results):
+                    break
+                det  = self._results[idx]
+                name = det.get("common_name", "?")[:26]
+                conf = int(det.get("confidence", 0) * 100)
+                ts   = str(det.get("detected_at", ""))[-8:]   # HH:MM:SS if ISO
+                line = "{} {}%".format(name, conf)
+                if ts:
+                    line = line + "  " + ts
+                d.text(line[:44], 10, 48 + i * 14, fg=T.C_FG)
+        d.text("Esc=back  Up/Dn=scroll", 4, T.FOOTER_Y, fg=T.C_DIM)
+        self._dirty = False
+
+    # ── Input ─────────────────────────────────────────────────────────────────
+
+    def on_key(self, state, key):
+        if state not in (PRESSED, HOLD):
+            return
+
+        if self._state in ("error", "passive_msg"):
+            if state == PRESSED:
+                self._state = "menu"
+                self._dirty = True
+            return
+
+        if self._state == "results":
+            if key == KEY_ESC and state == PRESSED:
+                self._state = "menu"
+                self._dirty = True
+            elif key == KEY_UP and self._scroll_off > 0:
+                self._scroll_off -= 1
+                self._dirty = True
+            elif key == KEY_DOWN and self._scroll_off < len(self._results) - 1:
+                self._scroll_off += 1
+                self._dirty = True
+            return
+
+        if self._state == "menu":
+            if key == KEY_ESC and state == PRESSED:
+                self.ui.stack.pop()
+            elif key == KEY_UP:
+                self._sel = (self._sel - 1) % len(MENU)
+                self._dirty = True
+            elif key == KEY_DOWN:
+                self._sel = (self._sel + 1) % len(MENU)
+                self._dirty = True
+            elif key == KEY_ENTER and state == PRESSED:
+                self._activate()
+
+    def _activate(self):
+        if not self._device:
+            return
+        if self._sel in _DURATIONS:
+            self._capture(_DURATIONS[self._sel])
+        elif self._sel == 2:
+            self._toggle_passive()
+        elif self._sel == 3:
+            self._view_detections()

@@ -1,106 +1,97 @@
-"""Species search screen."""
+"""
+Species search screen — type to search the local taxonomy database.
+Selecting a result opens the species detail screen.
+"""
+from app.screen import Screen
+from lib.keyboard import PRESSED, HOLD, KEY_ESC, KEY_UP, KEY_DOWN, KEY_ENTER, KEY_BACKSPACE
+from app.http import get, quote, as_list
 
-from app.screen import Screen, WHITE, BLACK, ACCENT, GRAY, GREEN, YELLOW
-from lib.keyboard import KEY_UP, KEY_DOWN, KEY_ENTER, KEY_ESC, KEY_BKSP
+MAX_QUERY = 50  # cap query length to keep URLs and RAM sane
 
-PAGE_SIZE = 20
+from app import theme as T
+
+C_BG     = T.C_BG
+C_FG     = T.C_FG
+C_HEADER = T.C_HEADER
+C_DIM    = T.C_DIM
+C_SEL    = T.C_SEL
+C_CURSOR = T.C_CURSOR
+
+ROW_H   = 12
+LIST_Y  = 50
+VISIBLE = 20
 
 
-class SearchScreen:
+class SearchScreen(Screen):
     def __init__(self, ui):
-        self.ui      = ui
-        self.screen  = ui.screen
-        self.query   = ""
-        self.results = []
-        self.sel     = 0
-        self.page    = 0
-        self.total   = 0
-        self._typing = True  # Start in typing mode
+        super().__init__(ui)
+        self._query   = ""
+        self._species = []   # full dicts from API
+        self._sel     = 0
+        self._off     = 0
+        self._dirty   = True
 
     def on_enter(self):
-        self.draw()
-
-    def on_exit(self):
-        pass
+        self._dirty = True
 
     def _search(self):
-        if not self.query:
-            self.results = []
+        if not self._query:
+            self._species = []
             return
         try:
-            data = self.ui.http.get_json(
-                f"/api/species/search?q={self.query}&page={self.page}"
-            )
-            self.results = data.get("results", [])
-            self.total   = data.get("total", 0)
-        except Exception as e:
-            self.results = []
-            self.screen.status_bar(f"Error: {e}")
+            path = "/api/species/search?q=" + quote(self._query) + "&page=0"
+            data = get(self.ui.api_host, self.ui.api_port, path, timeout=5)
+            self._species = as_list(data)
+        except Exception:
+            self._species = []
+        self._sel = 0
+        self._off = 0
 
     def draw(self):
-        s = self.screen
-        s.fill(BLACK)
-        s.header("Species Search")
+        if not self._dirty:
+            return
+        d = self.ui.display
+        d.fill(*C_BG)
+        d.text("Search Species", 10, 8, fg=C_HEADER)
+        display_q = self._query[-36:] if len(self._query) > 36 else self._query
+        d.text(">" + display_q + "_", 10, 26, fg=C_CURSOR)
 
-        # Search bar
-        bar_label = f"Search: {self.query}{'_' if self._typing else ''}"
-        s.fill_rect(0, 12, s.width, 12, 0x001F)
-        s.text(bar_label[:s.cols], 2, 14, WHITE, 0x001F)
+        for i in range(VISIBLE):
+            idx = self._off + i
+            if idx >= len(self._species):
+                break
+            fg = C_SEL if idx == self._sel else C_FG
+            name = self._species[idx].get("common_name", self._species[idx].get("comName", "?"))
+            d.text(name[:50], 10, LIST_Y + i * ROW_H, fg=fg)
 
-        # Results list
-        item_h = 18
-        start_y = 26
-        for i, row in enumerate(self.results[:10]):
-            y  = start_y + i * item_h
-            fg = BLACK if i == self.sel else WHITE
-            bg = ACCENT if i == self.sel else BLACK
-            name = row.get("common_name", "")[:30]
-            s.fill_rect(2, y, s.width - 4, item_h - 1, bg)
-            s.text(name, 4, y + 4, fg, bg)
+        hint = "Type=search  Enter=detail  Esc=back"
+        d.text(hint, 4, 300, fg=C_DIM)
+        self._dirty = False
 
-        if not self.results and self.query:
-            s.text_center("No results", 140, GRAY)
-
-        # Pagination
-        pages = (self.total + PAGE_SIZE - 1) // PAGE_SIZE if self.total else 0
-        s.status_bar(f"p{self.page+1}/{max(1,pages)}  ESC=back")
-
-    def handle_key(self, key: int, mod: int):
-        if self._typing:
-            if 0x20 <= key <= 0x7E:
-                self.query += chr(key)
-                self.page   = 0
-                self.sel    = 0
+    def on_key(self, state, key):
+        if state not in (PRESSED, HOLD):
+            return
+        if key == KEY_ESC and state == PRESSED:
+            self.ui.stack.pop()
+        elif key == KEY_ENTER and state == PRESSED and self._species:
+            from app.screens.species_detail import SpeciesDetailScreen
+            self.ui.stack.push(SpeciesDetailScreen(self.ui, self._species[self._sel]))
+        elif key == KEY_BACKSPACE:
+            self._query = self._query[:-1]
+            self._search()
+            self._dirty = True
+        elif key == KEY_UP and self._sel > 0:
+            self._sel -= 1
+            if self._sel < self._off:
+                self._off = self._sel
+            self._dirty = True
+        elif key == KEY_DOWN and self._sel < len(self._species) - 1:
+            self._sel += 1
+            if self._sel >= self._off + VISIBLE:
+                self._off = self._sel - VISIBLE + 1
+            self._dirty = True
+        elif 0x20 <= key <= 0x7E and state == PRESSED:
+            if len(self._query) < MAX_QUERY:
+                self._query += chr(key)
                 self._search()
-                self.draw()
-            elif key == KEY_BKSP:
-                self.query  = self.query[:-1]
-                self.page   = 0
-                self.sel    = 0
-                self._search()
-                self.draw()
-            elif key == KEY_DOWN and self.results:
-                self._typing = False
-                self.draw()
-            elif key == KEY_ESC:
-                self.ui.pop()
-        else:
-            if key == KEY_UP:
-                if self.sel > 0:
-                    self.sel -= 1
-                else:
-                    self._typing = True
-                self.draw()
-            elif key == KEY_DOWN:
-                if self.sel < len(self.results) - 1:
-                    self.sel += 1
-                    self.draw()
-            elif key == KEY_ENTER and self.results:
-                self._open_species(self.results[self.sel])
-            elif key == KEY_ESC:
-                self._typing = True
-                self.draw()
-
-    def _open_species(self, row: dict):
-        from app.screens.species_detail import SpeciesDetailScreen
-        self.ui.push(SpeciesDetailScreen(self.ui, row["species_code"]))
+                self._dirty = True

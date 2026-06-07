@@ -1,58 +1,44 @@
-"""Simple screen-stack UI manager."""
-
+"""
+Top-level UI controller — owns the screen stack and main loop.
+"""
 import time
-from app.screen import Screen
-from lib.keyboard import Keyboard, KEY_NONE
-from lib.http_client import HTTPClient
+from app.screen import ScreenStack
+from app.screens.home import HomeScreen
+from app.http import get
 
 
 class UI:
-    def __init__(self, screen: Screen, keyboard: Keyboard,
-                 server_host: str, server_port: int):
-        self.screen   = screen
-        self.keyboard = keyboard
-        self.http     = HTTPClient(server_host, server_port)
-        self._stack: list = []
-        self.running  = False
+    def __init__(self, display, kb, api_host, api_port, connected=True):
+        self.display   = display
+        self.kb        = kb
+        self.api_host  = api_host
+        self.api_port  = api_port
+        self.connected = connected
+        self.stack     = ScreenStack(display, kb)
 
-    # ------------------------------------------------------------------
-    # Screen stack
-    # ------------------------------------------------------------------
+    def wifi_connected(self):
+        """True if the STA interface is currently associated with an AP."""
+        try:
+            import network
+            return network.WLAN(network.STA_IF).isconnected()
+        except Exception:
+            return False
 
-    def push(self, screen_obj):
-        self._stack.append(screen_obj)
-        screen_obj.on_enter()
-        screen_obj.draw()
-        self.screen.show()
-
-    def pop(self):
-        if len(self._stack) > 1:
-            self._stack.pop().on_exit()
-            top = self._stack[-1]
-            top.on_enter()
-            top.draw()
-            self.screen.show()
-
-    def replace(self, screen_obj):
-        if self._stack:
-            self._stack.pop().on_exit()
-        self._stack.append(screen_obj)
-        screen_obj.on_enter()
-        screen_obj.draw()
-        self.screen.show()
-
-    # ------------------------------------------------------------------
-    # Main loop
-    # ------------------------------------------------------------------
+    def ping_server(self, timeout=3):
+        """Ping the API. Updates and returns self.connected so the UI can
+        recover from a dropped link/server without a reboot."""
+        if not self.wifi_connected():
+            self.connected = False
+            return False
+        try:
+            r = get(self.api_host, self.api_port, "/api/ping", timeout=timeout)
+            self.connected = bool(r and r.get("status") == "ok")
+        except Exception:
+            self.connected = False
+        return self.connected
 
     def run(self):
-        self.running = True
-        while self.running and self._stack:
-            key, mod = self.keyboard.read_key()
-            if key != KEY_NONE:
-                self._stack[-1].handle_key(key, mod)
-                self.screen.show()
-            time.sleep_ms(20)
-
-    def quit(self):
-        self.running = False
+        self.stack.push(HomeScreen(self))
+        while True:
+            self.stack.tick()
+            time.sleep_ms(50)
