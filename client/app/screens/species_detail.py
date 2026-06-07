@@ -1,17 +1,23 @@
 """
 Species detail screen.
-Shows name, family, sci name and a Log Sighting option.
+Shows name, family, sci name.
+Quick-log: press L or joystick center to log count=1 instantly.
+Full log: navigate to "Log Sighting" for count + notes.
 """
 from app.screen import Screen
 from lib.keyboard import PRESSED, KEY_ESC, KEY_ENTER, KEY_UP, KEY_DOWN
+from app.http import post
 
-C_BG     = (0, 0, 0)
-C_FG     = (255, 255, 255)
-C_HEADER = (80, 200, 120)
-C_DIM    = (100, 100, 100)
-C_SEL    = (120, 255, 160)
-C_SEL_BG = (30, 90, 50)
-C_LABEL  = (140, 200, 255)
+C_BG      = (0, 0, 0)
+C_FG      = (255, 255, 255)
+C_HEADER  = (80, 200, 120)
+C_DIM     = (100, 100, 100)
+C_SEL     = (120, 255, 160)
+C_SEL_BG  = (30, 90, 50)
+C_LABEL   = (140, 200, 255)
+C_OK      = (80, 255, 80)
+C_ERR     = (255, 80, 80)
+C_QUICKLOG = (255, 220, 80)   # gold highlight for quick-log hint
 
 ACTIONS = ["Log Sighting", "Back"]
 
@@ -19,7 +25,6 @@ ACTIONS = ["Log Sighting", "Back"]
 class SpeciesDetailScreen(Screen):
     def __init__(self, ui, species):
         super().__init__(ui)
-        # species is a dict from the search API
         self._code   = species.get("species_code", species.get("speciesCode", ""))
         self._common = species.get("common_name",  species.get("comName", "Unknown"))
         self._sci    = species.get("sci_name",     species.get("sciName", ""))
@@ -65,7 +70,13 @@ class SpeciesDetailScreen(Screen):
         # Species code
         d.text("Code:", 4, y, fg=C_LABEL)
         d.text(self._code, 40, y, fg=C_DIM)
-        y += 20
+        y += 16
+
+        # Quick-log hint
+        d.fill_rect(0, y, 320, 1, 60, 60, 20)
+        y += 6
+        d.text("Quick-log: press L  (count=1, no notes)", 4, y, fg=C_QUICKLOG)
+        y += 14
 
         d.fill_rect(0, y, 320, 1, 40, 60, 40)
         y += 8
@@ -80,9 +91,9 @@ class SpeciesDetailScreen(Screen):
                 d.text("  " + action, 10, ay, fg=C_FG)
 
         if self._msg:
-            d.text(self._msg[:50], 4, 290, fg=self._msg_color)
+            d.text(self._msg[:50], 4, 288, fg=self._msg_color)
 
-        d.text("Enter=select  Esc=back", 4, 306, fg=C_DIM)
+        d.text("L=quick-log  Enter=select  Esc=back", 4, 306, fg=C_DIM)
         self._dirty = False
 
     def on_key(self, state, key):
@@ -90,6 +101,8 @@ class SpeciesDetailScreen(Screen):
             return
         if key == KEY_ESC:
             self.ui.stack.pop()
+        elif key == ord('l') or key == ord('L'):
+            self._quick_log()
         elif key == KEY_UP:
             self._sel = (self._sel - 1) % len(ACTIONS)
             self._dirty = True
@@ -102,3 +115,19 @@ class SpeciesDetailScreen(Screen):
                 self.ui.stack.push(LogSightingScreen(self.ui, self._code, self._common))
             else:
                 self.ui.stack.pop()
+
+    def _quick_log(self):
+        """Log count=1 immediately with no notes — one keypress in the field."""
+        try:
+            result = post(self.ui.api_host, self.ui.api_port,
+                          "/api/observations/", {"species_code": self._code, "count": 1})
+            if result:
+                self._msg = "Logged! (quick)"
+                self._msg_color = C_OK
+            else:
+                self._msg = "Server error"
+                self._msg_color = C_ERR
+        except Exception as e:
+            self._msg = str(e)[:48]
+            self._msg_color = C_ERR
+        self._dirty = True
