@@ -290,6 +290,24 @@ echo "    Pinning flatbuffers from PyPI (piwheels ships a broken build)..."
 "$PROJECT_DIR/venv/bin/pip" install --index-url https://pypi.org/simple \
     --force-reinstall "flatbuffers>=25.9.23,<99" -q || \
     echo "    Warning: could not pin flatbuffers; Sound ID may fail on Python 3.12+."
+
+# Warm up BirdNET: download the ~77 MB acoustic model now (while we have
+# internet) so the first field capture isn't slow or — if the Pi is offline in
+# the field — failing. A silent clip triggers the download; the analyzer's
+# empty-result writer bug is expected and harmless here, so ignore its exit.
+echo "    Pre-downloading BirdNET acoustic model (~77 MB, one time)..."
+_warm_wav="$(mktemp --suffix=.wav)"
+if "$PROJECT_DIR/venv/bin/python" - "$_warm_wav" <<'PY' 2>/dev/null
+import sys, wave, struct
+with wave.open(sys.argv[1], "w") as w:
+    w.setnchannels(1); w.setsampwidth(2); w.setframerate(48000)
+    w.writeframes(struct.pack("<" + "h" * 48000 * 3, *([0] * 48000 * 3)))
+PY
+then
+    "$PROJECT_DIR/venv/bin/python" -m birdnet_analyzer.analyze "$_warm_wav" \
+        -o "$(mktemp -d)" --rtype table >/dev/null 2>&1 || true
+fi
+rm -f "$_warm_wav"
 echo "    Done."
 
 # ---------------------------------------------------------------------------
