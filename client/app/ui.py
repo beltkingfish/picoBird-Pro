@@ -8,13 +8,15 @@ from app.http import get
 
 
 class UI:
-    def __init__(self, display, kb, api_host, api_port, connected=True):
-        self.display   = display
-        self.kb        = kb
-        self.api_host  = api_host
-        self.api_port  = api_port
-        self.connected = connected
-        self.stack     = ScreenStack(display, kb)
+    def __init__(self, display, kb, api_host, api_port, connected=True, ap_ssid=""):
+        self.display        = display
+        self.kb             = kb
+        self.api_host       = api_host
+        self.api_port       = api_port
+        self.connected      = connected
+        self.ap_ssid        = ap_ssid
+        self.active_session = None   # dict of the running session, or None
+        self.stack          = ScreenStack(display, kb)
 
     def wifi_connected(self):
         """True if the STA interface is currently associated with an AP."""

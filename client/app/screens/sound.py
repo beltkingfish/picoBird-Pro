@@ -46,7 +46,7 @@ class SoundScreen(Screen):
         try:
             path = "/api/sound/capture?duration={}".format(duration)
             data = get(self.ui.api_host, self.ui.api_port, path,
-                       timeout=duration + 15)
+                       timeout=duration + 60)
             if data and "detections" in data:
                 self._results = data["detections"]
                 self._state   = "results"

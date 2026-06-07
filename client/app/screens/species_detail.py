@@ -120,9 +120,12 @@ class SpeciesDetailScreen(Screen):
 
     def _quick_log(self):
         """Log count=1 immediately with no notes — one keypress in the field."""
+        payload = {"species_code": self._code, "count": 1}
+        if self.ui.active_session:
+            payload["session_id"] = self.ui.active_session.get("id")
         try:
             result = post(self.ui.api_host, self.ui.api_port,
-                          "/api/observations/", {"species_code": self._code, "count": 1})
+                          "/api/observations/", payload)
             if result:
                 self._msg = "Logged! (quick)"
                 self._msg_color = C_OK

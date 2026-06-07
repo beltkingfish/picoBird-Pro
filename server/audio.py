@@ -49,6 +49,12 @@ def record_wav(device: str, duration_s: int = 10) -> bytes:
 
     Raises RuntimeError on capture failure.
     """
+    # Record through ALSA's `plug` plugin so sample-rate/format conversion is
+    # automatic. USB mics (e.g. the 48 kHz Rode Wireless Pro) reject a forced
+    # 22050 Hz on the raw `hw:` device, so rewrite hw: -> plughw: here.
+    if device.startswith("hw:"):
+        device = "plug" + device
+
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
         tmp = f.name
     try:

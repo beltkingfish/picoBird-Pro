@@ -8,6 +8,10 @@ from server.api.observations import bp as observations_bp
 from server.api.sessions import bp as sessions_bp
 from server.api.lifelist import bp as lifelist_bp
 from server.api.sound import bp as sound_bp
+from server.api.vitals import bp as vitals_bp
+
+VERSION = "1.1.0"
+
 
 def create_app() -> Flask:
     app = Flask(__name__)
@@ -19,10 +23,11 @@ def create_app() -> Flask:
     app.register_blueprint(sessions_bp,     url_prefix="/api/sessions")
     app.register_blueprint(lifelist_bp,     url_prefix="/api/lifelist")
     app.register_blueprint(sound_bp,        url_prefix="/api/sound")
+    app.register_blueprint(vitals_bp,       url_prefix="/api/vitals")
 
     @app.get("/api/ping")
     def ping():
-        return {"status": "ok", "app": "picoBird Pro"}
+        return {"status": "ok", "app": "picoBird Pro", "version": VERSION}
 
     return app
 

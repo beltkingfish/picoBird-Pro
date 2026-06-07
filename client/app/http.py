@@ -113,8 +113,8 @@ def get(host, port, path, timeout=8):
             pass
 
 
-def post(host, port, path, data, timeout=8):
-    """POST JSON data — returns parsed JSON or None on any failure."""
+def _send_body(host, port, path, data, method, timeout):
+    """Shared JSON body sender for POST/PATCH — returns parsed JSON or None."""
     try:
         body = _json.dumps(data).encode()
         addr = socket.getaddrinfo(host, port)[0][-1]
@@ -125,12 +125,12 @@ def post(host, port, path, data, timeout=8):
     try:
         s.connect(addr)
         headers = (
-            "POST {} HTTP/1.0\r\n"
+            "{} {} HTTP/1.0\r\n"
             "Host: {}:{}\r\n"
             "Content-Type: application/json\r\n"
             "Content-Length: {}\r\n"
             "Connection: close\r\n\r\n"
-        ).format(path, host, port, len(body))
+        ).format(method, path, host, port, len(body))
         s.send(headers.encode() + body)
         return _read_response(s)
     except Exception:
@@ -140,3 +140,13 @@ def post(host, port, path, data, timeout=8):
             s.close()
         except Exception:
             pass
+
+
+def post(host, port, path, data, timeout=8):
+    """POST JSON data — returns parsed JSON or None on any failure."""
+    return _send_body(host, port, path, data, "POST", timeout)
+
+
+def patch(host, port, path, data, timeout=8):
+    """PATCH JSON data — returns parsed JSON or None on any failure."""
+    return _send_body(host, port, path, data, "PATCH", timeout)

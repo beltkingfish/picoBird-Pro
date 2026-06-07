@@ -147,6 +147,8 @@ class LogSightingScreen(Screen):
             "count": count,
             "notes": self._notes,
         }
+        if self.ui.active_session:
+            payload["session_id"] = self.ui.active_session.get("id")
         try:
             result = post(self.ui.api_host, self.ui.api_port, "/api/observations/", payload)
             if result:

@@ -231,7 +231,7 @@ echo ""
 echo "==> [2/9] Creating service user"
 # ---------------------------------------------------------------------------
 id -u "$SERVICE_USER" &>/dev/null || useradd -r -s /sbin/nologin "$SERVICE_USER"
-usermod -aG spi,gpio "$SERVICE_USER" 2>/dev/null || true
+usermod -aG spi,gpio,audio "$SERVICE_USER" 2>/dev/null || true
 echo "    Done."
 
 # ---------------------------------------------------------------------------

@@ -19,7 +19,7 @@ ExecStart=/opt/picobird-pro/venv/bin/gunicorn \
     --workers 2 \
     --bind 127.0.0.1:5000 \
     --bind 192.168.4.1:5000 \
-    --timeout 60 \
+    --timeout 120 \
     --access-logfile /var/log/picobird-pro-access.log \
     --error-logfile  /var/log/picobird-pro-error.log \
     "server.main:create_app()"
