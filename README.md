@@ -223,6 +223,31 @@ Results are **show-only** — Sound ID detections are not written to your sighti
 
 ---
 
+## Importing your eBird life list
+
+**The eBird API cannot pull your personal life list.** The public API only exposes
+shared/public data (observations, hotspots, regions, taxonomy, statistics) — there is
+no authenticated "my life list" endpoint, so entering your API key during setup does
+**not** import your existing lifers.
+
+To seed your life list, import the CSV eBird lets you download from the website:
+
+1. Go to [ebird.org/lifelist](https://ebird.org/lifelist)
+2. Pick the region/time span you want (e.g. **World**, **All years**)
+3. Click **Download (CSV)** (top right)
+4. Copy the file onto the Pi 5 (e.g. via `scp`), then run:
+
+```bash
+python3 /opt/picobird-pro-src/setup/import_lifelist.py ~/ebird_world_life_list.csv
+```
+
+It matches each species against the synced taxonomy and adds any missing lifers,
+printing `{"added": N, "skipped": M, "unmatched": K}`. Re-running is safe (already
+present species are skipped). Make sure the taxonomy is synced first (the installer
+does this).
+
+---
+
 ## API Reference
 
 | Method | Path | Description |
@@ -236,8 +261,14 @@ Results are **show-only** — Sound ID detections are not written to your sighti
 | POST | `/api/observations/` | Log an observation |
 | PATCH | `/api/observations/<id>` | Update observation |
 | DELETE | `/api/observations/<id>` | Delete observation |
+| GET | `/api/sessions/` | List birding sessions |
+| POST | `/api/sessions/` | Start a session |
+| PATCH | `/api/sessions/<id>/end` | End a session |
+| GET | `/api/sessions/<id>/summary` | Session summary (species/obs counts) |
 | GET | `/api/lifelist/` | Life list (paginated) |
 | GET | `/api/lifelist/stats` | Life list stats |
+| POST | `/api/lifelist/import` | Import eBird life-list CSV (multipart `file`) |
+| GET | `/api/vitals/` | System + birding stats (for Settings) |
 | GET | `/api/sound/device` | Detected USB mic (or null) |
 | POST | `/api/sound/capture?duration=10` | Record + BirdNET (3–30 s) |
 | POST | `/api/sound/listen` | Start/stop passive listener `{"action":"start"}` |

@@ -147,7 +147,7 @@ def main():
 
     time.sleep_ms(800)
 
-    ui = UI(display, kb, API_HOST, API_PORT, connected=connected)
+    ui = UI(display, kb, API_HOST, API_PORT, connected=connected, ap_ssid=AP_SSID_PREFIX)
     ui.run()
 
 
