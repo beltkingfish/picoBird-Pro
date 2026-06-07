@@ -15,7 +15,7 @@ from app.ui import UI
 
 # ── Network config ───────────────────────────────────────────────────────────
 AP_SSID_PREFIX = "picoBirdPro"   # matches any SSID starting with this
-AP_PASSWORD    = "picoBird1"     # set during Pi 5 installer (hostapd WPA key)
+AP_PASSWORD    = "fieldguide"    # set during Pi 5 installer (hostapd WPA key)
 API_HOST       = "192.168.4.1"
 API_PORT       = 5000
 
