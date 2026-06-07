@@ -150,8 +150,8 @@ done
 print_header "Step 2 of 3 — WiFi Hotspot Settings"
 cat <<'EOF'
 The Pi 5 will create a WiFi hotspot that your PicoCalc
-connects to in the field. You can use the defaults below
-or choose your own name and password.
+connects to in the field. Press Enter to accept the default
+shown in [brackets], or type your own value.
 
 EOF
 ask AP_SSID "Hotspot name (SSID)" "picoBirdPro"
