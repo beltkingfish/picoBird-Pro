@@ -1,5 +1,5 @@
 """
-Life List screen — species the user has logged.
+Today's Birds screen — recent eBird observations near the Pi 5.
 """
 from app.screen import Screen
 from lib.keyboard import PRESSED, KEY_ESC, KEY_UP, KEY_DOWN
@@ -14,10 +14,10 @@ C_ERR    = (255, 80, 80)
 
 ROW_H   = 12
 LIST_Y  = 36
-VISIBLE = 21
+VISIBLE = 21  # rows that fit below header
 
 
-class LifeListScreen(Screen):
+class TodayScreen(Screen):
     def __init__(self, ui):
         super().__init__(ui)
         self._items = []
@@ -32,13 +32,13 @@ class LifeListScreen(Screen):
 
     def _load(self):
         try:
-            data = get(self.ui.api_host, self.ui.api_port, "/api/lifelist", timeout=6)
+            data = get(self.ui.api_host, self.ui.api_port, "/api/obs/recent?max=100", timeout=8)
             if data and isinstance(data, list):
-                self._items = [e.get("comName", "?") for e in data]
+                self._items = [o.get("comName", "?") + " — " + o.get("locName", "") for o in data]
                 self._error = ""
             else:
                 self._items = []
-                self._error = "No life list data"
+                self._error = "No observations returned"
         except Exception as e:
             self._items = []
             self._error = str(e)
@@ -48,8 +48,7 @@ class LifeListScreen(Screen):
             return
         d = self.ui.display
         d.fill(*C_BG)
-        count = str(len(self._items)) + " species"
-        d.text("Life List — " + count, 10, 8, fg=C_HEADER)
+        d.text("Today's Birds", 10, 8, fg=C_HEADER)
         if self._error:
             d.text(self._error[:50], 10, LIST_Y, fg=C_ERR)
         else:
@@ -57,8 +56,9 @@ class LifeListScreen(Screen):
                 idx = self._off + i
                 if idx >= len(self._items):
                     break
+                y = LIST_Y + i * ROW_H
                 fg = C_SEL if idx == self._sel else C_FG
-                d.text(self._items[idx][:50], 10, LIST_Y + i * ROW_H, fg=fg)
+                d.text(self._items[idx][:50], 10, y, fg=fg)
         d.text("Up/Dn=scroll  Esc=back", 10, 300, fg=C_DIM)
         self._dirty = False
 

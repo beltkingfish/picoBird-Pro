@@ -1,106 +1,90 @@
-"""Species search screen."""
+"""
+Species search screen — type to search the local taxonomy database.
+"""
+from app.screen import Screen
+from lib.keyboard import PRESSED, KEY_ESC, KEY_UP, KEY_DOWN, KEY_ENTER, KEY_BACKSPACE
+from app.http import get
 
-from app.screen import Screen, WHITE, BLACK, ACCENT, GRAY, GREEN, YELLOW
-from lib.keyboard import KEY_UP, KEY_DOWN, KEY_ENTER, KEY_ESC, KEY_BKSP
+C_BG     = (0, 0, 0)
+C_FG     = (255, 255, 255)
+C_HEADER = (80, 200, 120)
+C_DIM    = (100, 100, 100)
+C_SEL    = (120, 255, 160)
+C_CURSOR = (255, 255, 0)
 
-PAGE_SIZE = 20
+ROW_H   = 12
+LIST_Y  = 50
+VISIBLE = 20
 
 
-class SearchScreen:
+class SearchScreen(Screen):
     def __init__(self, ui):
-        self.ui      = ui
-        self.screen  = ui.screen
-        self.query   = ""
-        self.results = []
-        self.sel     = 0
-        self.page    = 0
-        self.total   = 0
-        self._typing = True  # Start in typing mode
+        super().__init__(ui)
+        self._query  = ""
+        self._items  = []
+        self._sel    = 0
+        self._off    = 0
+        self._dirty  = True
 
     def on_enter(self):
-        self.draw()
-
-    def on_exit(self):
-        pass
+        self._dirty = True
 
     def _search(self):
-        if not self.query:
-            self.results = []
+        if not self._query:
+            self._items = []
             return
         try:
-            data = self.ui.http.get_json(
-                f"/api/species/search?q={self.query}&page={self.page}"
-            )
-            self.results = data.get("results", [])
-            self.total   = data.get("total", 0)
-        except Exception as e:
-            self.results = []
-            self.screen.status_bar(f"Error: {e}")
+            path = "/api/species/search?q=" + self._query.replace(" ", "+") + "&limit=80"
+            data = get(self.ui.api_host, self.ui.api_port, path, timeout=5)
+            if data and isinstance(data, list):
+                self._items = [s.get("comName", "?") for s in data]
+            else:
+                self._items = []
+        except Exception:
+            self._items = []
+        self._sel = 0
+        self._off = 0
 
     def draw(self):
-        s = self.screen
-        s.fill(BLACK)
-        s.header("Species Search")
+        if not self._dirty:
+            return
+        d = self.ui.display
+        d.fill(*C_BG)
+        d.text("Search Species", 10, 8, fg=C_HEADER)
+        # Query box
+        display_q = self._query[-36:] if len(self._query) > 36 else self._query
+        d.text(">" + display_q + "_", 10, 26, fg=C_CURSOR)
 
-        # Search bar
-        bar_label = f"Search: {self.query}{'_' if self._typing else ''}"
-        s.fill_rect(0, 12, s.width, 12, 0x001F)
-        s.text(bar_label[:s.cols], 2, 14, WHITE, 0x001F)
+        for i in range(VISIBLE):
+            idx = self._off + i
+            if idx >= len(self._items):
+                break
+            fg = C_SEL if idx == self._sel else C_FG
+            d.text(self._items[idx][:50], 10, LIST_Y + i * ROW_H, fg=fg)
 
-        # Results list
-        item_h = 18
-        start_y = 26
-        for i, row in enumerate(self.results[:10]):
-            y  = start_y + i * item_h
-            fg = BLACK if i == self.sel else WHITE
-            bg = ACCENT if i == self.sel else BLACK
-            name = row.get("common_name", "")[:30]
-            s.fill_rect(2, y, s.width - 4, item_h - 1, bg)
-            s.text(name, 4, y + 4, fg, bg)
+        d.text("Type=search  Esc=back", 10, 300, fg=C_DIM)
+        self._dirty = False
 
-        if not self.results and self.query:
-            s.text_center("No results", 140, GRAY)
-
-        # Pagination
-        pages = (self.total + PAGE_SIZE - 1) // PAGE_SIZE if self.total else 0
-        s.status_bar(f"p{self.page+1}/{max(1,pages)}  ESC=back")
-
-    def handle_key(self, key: int, mod: int):
-        if self._typing:
-            if 0x20 <= key <= 0x7E:
-                self.query += chr(key)
-                self.page   = 0
-                self.sel    = 0
-                self._search()
-                self.draw()
-            elif key == KEY_BKSP:
-                self.query  = self.query[:-1]
-                self.page   = 0
-                self.sel    = 0
-                self._search()
-                self.draw()
-            elif key == KEY_DOWN and self.results:
-                self._typing = False
-                self.draw()
-            elif key == KEY_ESC:
-                self.ui.pop()
-        else:
-            if key == KEY_UP:
-                if self.sel > 0:
-                    self.sel -= 1
-                else:
-                    self._typing = True
-                self.draw()
-            elif key == KEY_DOWN:
-                if self.sel < len(self.results) - 1:
-                    self.sel += 1
-                    self.draw()
-            elif key == KEY_ENTER and self.results:
-                self._open_species(self.results[self.sel])
-            elif key == KEY_ESC:
-                self._typing = True
-                self.draw()
-
-    def _open_species(self, row: dict):
-        from app.screens.species_detail import SpeciesDetailScreen
-        self.ui.push(SpeciesDetailScreen(self.ui, row["species_code"]))
+    def on_key(self, state, key):
+        if state != PRESSED:
+            return
+        if key == KEY_ESC:
+            self.ui.stack.pop()
+        elif key == KEY_BACKSPACE:
+            self._query = self._query[:-1]
+            self._search()
+            self._dirty = True
+        elif key == KEY_UP and self._sel > 0:
+            self._sel -= 1
+            if self._sel < self._off:
+                self._off = self._sel
+            self._dirty = True
+        elif key == KEY_DOWN and self._sel < len(self._items) - 1:
+            self._sel += 1
+            if self._sel >= self._off + VISIBLE:
+                self._off = self._sel - VISIBLE + 1
+            self._dirty = True
+        elif 0x20 <= key <= 0x7E:
+            self._query += chr(key)
+            self._search()
+            self._dirty = True

@@ -1,77 +1,116 @@
-"""Home screen — main menu."""
+"""
+Home screen — main menu with Today / Search / Life List / Settings.
+"""
+import time
+from app.screen import Screen
+from lib.keyboard import PRESSED, KEY_UP, KEY_DOWN, KEY_ENTER, KEY_ESC
+from app.http import get
 
-from app.screen import Screen, WHITE, BLACK, ACCENT, GRAY, GREEN
-from lib.keyboard import KEY_UP, KEY_DOWN, KEY_ENTER, KEY_NONE
+MENU_ITEMS = ["Today's Birds", "Search Species", "My Life List", "Sound ID", "Settings"]
 
-MENU_ITEMS = [
-    ("Search Species",  "search"),
-    ("New Observation", "observe"),
-    ("Life List",       "lifelist"),
-    ("Sessions",        "sessions"),
-    ("Sound ID",        "sound"),
-]
+C_BG      = (0, 0, 0)
+C_FG      = (255, 255, 255)
+C_SEL_BG  = (30, 90, 50)
+C_SEL_FG  = (120, 255, 160)
+C_HEADER  = (80, 200, 120)
+C_DIM     = (100, 100, 100)
+C_ERR     = (255, 80, 80)
+
+ROW_H = 22
+START_Y = 60
 
 
-class HomeScreen:
+class HomeScreen(Screen):
     def __init__(self, ui):
-        self.ui      = ui
-        self.screen  = ui.screen
-        self.sel     = 0
-        self._lifer_count: int | None = None
+        super().__init__(ui)
+        self._sel = 0
+        self._dirty = True
+        self._status = ""
+        self._status_color = C_DIM
+        self._last_ping = 0
 
     def on_enter(self):
-        # Fetch life list count for display.
-        try:
-            data = self.ui.http.get_json("/api/lifelist/stats")
-            self._lifer_count = data.get("total_species", 0)
-        except Exception:
-            self._lifer_count = None
+        self._dirty = True
+        self._ping()
 
-    def on_exit(self):
-        pass
+    def _ping(self):
+        if not self.ui.connected:
+            self._status = "No WiFi"
+            self._status_color = (255, 80, 80)
+            return
+        try:
+            r = get(self.ui.api_host, self.ui.api_port, "/api/ping", timeout=3)
+            if r and r.get("status") == "ok":
+                self._status = "Pi 5 connected"
+                self._status_color = (80, 200, 120)
+            else:
+                self._status = "Pi 5 unreachable"
+                self._status_color = (255, 160, 0)
+        except Exception:
+            self._status = "Pi 5 unreachable"
+            self._status_color = (255, 160, 0)
 
     def draw(self):
-        s = self.screen
-        s.fill(BLACK)
-        s.header("picoBird Pro")
+        if not self._dirty:
+            # Re-ping every 30 s without full redraw
+            now = time.ticks_ms()
+            if time.ticks_diff(now, self._last_ping) > 30_000:
+                self._last_ping = now
+                old = self._status
+                self._ping()
+                if self._status != old:
+                    self._dirty = True
+            return
 
-        if self._lifer_count is not None:
-            s.text(f"Lifers: {self._lifer_count}", 4, 16, GRAY)
+        d = self.ui.display
+        d.fill(*C_BG)
 
-        item_h = 24
-        start_y = 40
-        for i, (label, _) in enumerate(MENU_ITEMS):
-            y   = start_y + i * item_h
-            fg  = BLACK if i == self.sel else WHITE
-            bg  = ACCENT if i == self.sel else BLACK
-            s.fill_rect(4, y, s.width - 8, item_h - 2, bg)
-            s.text(label, 8, y + 8, fg, bg)
+        # Header
+        d.text("picoBird Pro", 10, 8, fg=C_HEADER)
+        d.text(self._status, 10, 22, fg=self._status_color)
+        # Divider (thin horizontal line)
+        d.fill_rect(0, 42, 320, 1, 40, 100, 60)
 
-        s.status_bar("UP/DOWN  ENTER=select")
+        # Menu
+        for i, item in enumerate(MENU_ITEMS):
+            y = START_Y + i * ROW_H
+            if i == self._sel:
+                d.fill_rect(0, y - 2, 320, ROW_H, *C_SEL_BG)
+                d.text("> " + item, 10, y, fg=C_SEL_FG)
+            else:
+                d.text("  " + item, 10, y, fg=C_FG)
 
-    def handle_key(self, key: int, mod: int):
+        # Footer hint
+        d.text("Enter=select  Esc=back", 10, 300, fg=C_DIM)
+
+        self._dirty = False
+        self._last_ping = time.ticks_ms()
+
+    def on_key(self, state, key):
+        if state != PRESSED:
+            return
         if key == KEY_UP:
-            self.sel = (self.sel - 1) % len(MENU_ITEMS)
-            self.draw()
+            self._sel = (self._sel - 1) % len(MENU_ITEMS)
+            self._dirty = True
         elif key == KEY_DOWN:
-            self.sel = (self.sel + 1) % len(MENU_ITEMS)
-            self.draw()
+            self._sel = (self._sel + 1) % len(MENU_ITEMS)
+            self._dirty = True
         elif key == KEY_ENTER:
-            self._launch(MENU_ITEMS[self.sel][1])
+            self._open_selected()
 
-    def _launch(self, target: str):
-        if target == "search":
-            from app.screens.search import SearchScreen
-            self.ui.push(SearchScreen(self.ui))
-        elif target == "observe":
-            from app.screens.observe import ObserveScreen
-            self.ui.push(ObserveScreen(self.ui))
-        elif target == "lifelist":
-            from app.screens.lifelist import LifeListScreen
-            self.ui.push(LifeListScreen(self.ui))
-        elif target == "sessions":
-            from app.screens.sessions import SessionsScreen
-            self.ui.push(SessionsScreen(self.ui))
-        elif target == "sound":
-            from app.screens.sound import SoundScreen
-            self.ui.push(SoundScreen(self.ui))
+    def _open_selected(self):
+        from app.screens.today import TodayScreen
+        from app.screens.search import SearchScreen
+        from app.screens.lifelist import LifeListScreen
+
+        if self._sel == 0:
+            self.ui.stack.push(TodayScreen(self.ui))
+        elif self._sel == 1:
+            self.ui.stack.push(SearchScreen(self.ui))
+        elif self._sel == 2:
+            self.ui.stack.push(LifeListScreen(self.ui))
+        # Sound ID and Settings: show "coming soon"
+        else:
+            self._status = MENU_ITEMS[self._sel] + ": coming soon"
+            self._status_color = (180, 180, 50)
+            self._dirty = True
