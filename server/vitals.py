@@ -256,6 +256,31 @@ def _handle_signal(sig, frame):
     _running = False
 
 
+def render_once() -> bool:
+    """Render and push a single frame, then sleep the panel. Returns True on a
+    real display update, False if hardware is unavailable (dry-run).
+
+    Used as a hardware smoke-test: `python -m server.vitals --once`.
+    """
+    if not _HW_AVAILABLE:
+        img = render_image()
+        log.warning("PIL or RPi.GPIO not available — dry-run; rendered %dx%d frame",
+                    img.width, img.height)
+        return False
+
+    epd = EPD()
+    log.info("Initialising e-ink display...")
+    epd.init()
+    try:
+        img = render_image()
+        epd.display(image_to_bytes(img))
+        log.info("Single frame displayed")
+    finally:
+        epd.sleep()
+        epd.close()
+    return True
+
+
 def run():
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT,  _handle_signal)
@@ -298,4 +323,8 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    import sys
+    if "--once" in sys.argv:
+        render_once()
+    else:
+        run()

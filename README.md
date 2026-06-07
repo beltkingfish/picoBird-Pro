@@ -223,6 +223,54 @@ Results are **show-only** — Sound ID detections are not written to your sighti
 
 ---
 
+## E-ink status display (Waveshare 2.9" V2)
+
+An optional Waveshare 2.9" V2 (296×128, black/white) e-paper panel on the Pi's
+GPIO shows a live status dashboard, refreshed every 30 s by the `picobird-vitals`
+service: title bar + AP IP, uptime, AP client count, server/BirdNET status, CPU
+temp, memory, life-list count, observations today, and the last bird logged.
+
+### Wiring (BCM numbering)
+
+| E-ink pin | Pi GPIO (BCM) | Physical pin |
+|---|---|---|
+| VCC | 3.3 V | 1 |
+| GND | GND | 6 |
+| DIN | GPIO 10 (SPI0 MOSI) | 19 |
+| CLK | GPIO 11 (SPI0 SCLK) | 23 |
+| CS | GPIO 8 (SPI0 CE0) | 24 |
+| DC | GPIO 25 | 22 |
+| RST | GPIO 17 | 11 |
+| BUSY | GPIO 24 | 18 |
+
+### Raspberry Pi 5 note
+
+The Pi 5's RP1 GPIO controller is **not** supported by classic `RPi.GPIO`. The
+installer installs `python3-rpi-lgpio` (a drop-in `RPi.GPIO` API backed by lgpio)
+instead. SPI is enabled automatically (`dtparam=spi=on`).
+
+### Test it
+
+After plugging in the panel, render a single frame:
+
+```bash
+sudo -u picobird /opt/picobird-pro/venv/bin/python -m server.vitals --once
+```
+
+The panel should do one full refresh and show the dashboard. Then check the
+service:
+
+```bash
+systemctl status picobird-vitals
+journalctl -u picobird-vitals -n 20
+```
+
+If you see "running in dry-run mode" in the log, the GPIO library isn't loading —
+on a Pi 5 confirm `python3-rpi-lgpio` is installed (`sudo apt install -y
+python3-rpi-lgpio`, which removes the incompatible `python3-rpi.gpio`).
+
+---
+
 ## Importing your eBird life list
 
 **The eBird API cannot pull your personal life list.** The public API only exposes

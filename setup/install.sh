@@ -215,9 +215,12 @@ echo "==> [1/9] Installing system packages"
 echo "    (This may take a few minutes...)"
 # ---------------------------------------------------------------------------
 apt-get update -qq
+# python3-rpi-lgpio (not python3-rpi.gpio): classic RPi.GPIO can't talk to the
+# Pi 5's RP1 GPIO controller. rpi-lgpio is a drop-in providing the same RPi.GPIO
+# API via lgpio; it Provides/Conflicts python3-rpi.gpio so apt swaps cleanly.
 apt-get install -y --no-install-recommends \
     python3 python3-pip python3-venv \
-    python3-rpi.gpio python3-spidev \
+    python3-rpi-lgpio python3-spidev \
     hostapd dnsmasq \
     git ffmpeg \
     alsa-utils \
