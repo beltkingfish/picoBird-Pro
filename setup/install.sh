@@ -20,10 +20,10 @@ ask() {
     local var="$1" prompt="$2" default="${3:-}"
     while true; do
         if [ -n "$default" ]; then
-            read -rp "$prompt [$default]: " value
+            read -rp "$prompt [$default]: " value </dev/tty
             value="${value:-$default}"
         else
-            read -rp "$prompt: " value
+            read -rp "$prompt: " value </dev/tty
         fi
         if [ -n "$value" ]; then
             eval "$var=\"$value\""
@@ -36,10 +36,10 @@ ask() {
 ask_optional() {
     local var="$1" prompt="$2" default="${3:-}"
     if [ -n "$default" ]; then
-        read -rp "$prompt [$default]: " value
+        read -rp "$prompt [$default]: " value </dev/tty
         eval "$var=\"${value:-$default}\""
     else
-        read -rp "$prompt (leave blank to skip): " value
+        read -rp "$prompt (leave blank to skip): " value </dev/tty
         eval "$var=\"$value\""
     fi
 }
@@ -48,7 +48,7 @@ ask_secret() {
     # Like ask but hides input
     local var="$1" prompt="$2"
     while true; do
-        read -rsp "$prompt: " value
+        read -rsp "$prompt: " value </dev/tty
         echo
         if [ -n "$value" ]; then
             eval "$var=\"$value\""
@@ -126,7 +126,7 @@ internet connection speed.
 
 Press Enter to continue, or Ctrl+C to cancel.
 EOF
-read -r
+read -r </dev/tty
 
 # ---------------------------------------------------------------------------
 # Gather settings
@@ -150,8 +150,8 @@ done
 print_header "Step 2 of 3 — WiFi Hotspot Settings"
 cat <<'EOF'
 The Pi 5 will create a WiFi hotspot that your PicoCalc
-connects to in the field. You can use the defaults below
-or choose your own name and password.
+connects to in the field. Press Enter to accept the default
+shown in [brackets], or type your own value.
 
 EOF
 ask AP_SSID "Hotspot name (SSID)" "picoBirdPro"
@@ -177,7 +177,7 @@ Ready to install with these settings:
   Pi 5 IP       : $AP_IP
 
 EOF
-read -rp "Proceed with installation? [Y/n]: " confirm
+read -rp "Proceed with installation? [Y/n]: " confirm </dev/tty
 confirm="${confirm:-Y}"
 if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
     echo "Installation cancelled."
@@ -274,7 +274,7 @@ if ! "$PROJECT_DIR/venv/bin/pip" install /opt/BirdNET-Analyzer -q; then
     echo "    Warning: BirdNET-Analyzer failed to install (needed for Sound ID)."
     echo "    Everything else will still work. Retry later with:"
     echo "      $PROJECT_DIR/venv/bin/pip install /opt/BirdNET-Analyzer"
-    read -rp "    Continue without Sound ID? [Y/n]: " bn_ok
+    read -rp "    Continue without Sound ID? [Y/n]: " bn_ok </dev/tty
     bn_ok="${bn_ok:-Y}"
     if [[ ! "$bn_ok" =~ ^[Yy]$ ]]; then
         echo "Installation aborted. Fix BirdNET and re-run."
