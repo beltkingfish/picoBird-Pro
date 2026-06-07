@@ -81,9 +81,14 @@ def analyze_clip(
             timeout=90,
         )
         if result.returncode != 0:
-            raise RuntimeError(
-                "BirdNET failed: {}".format((result.stderr or result.stdout)[:500])
-            )
+            # birdnet_analyzer's result writers crash on EMPTY results: they do
+            # df[["Scientific Name","Common Name"]] = df["species_name"].str.split(...)
+            # which raises "Columns must be same length as key" when no birds
+            # were detected. Treat that as a clean "no detections" result.
+            err = (result.stderr or "") + (result.stdout or "")
+            if "Columns must be same length" in err or "species_name" in err:
+                return []
+            raise RuntimeError("BirdNET failed: {}".format(err[:500]))
 
         # The table result type writes one tab-separated .txt per input file.
         table_files = glob.glob(os.path.join(out_dir, "*.txt"))
