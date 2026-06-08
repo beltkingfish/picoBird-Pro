@@ -127,6 +127,7 @@ class SessionsScreen(Screen):
                 self._stage = "menu"
                 self._sel = 0
                 self._dirty = True
+                self._needs_full = True
             return
 
         if self._stage == "naming":
@@ -154,6 +155,7 @@ class SessionsScreen(Screen):
         if key == KEY_ESC and state == PRESSED:
             self._stage = "menu"
             self._dirty = True
+            self._needs_full = True
         elif key == KEY_ENTER and state == PRESSED:
             self._start_session()
         elif key == KEY_BACKSPACE:
@@ -195,6 +197,7 @@ class SessionsScreen(Screen):
         self._stage = "menu"
         self._sel = 0
         self._dirty = True
+        self._needs_full = True
 
     def _end_session(self):
         sess = self.ui.active_session
@@ -217,6 +220,7 @@ class SessionsScreen(Screen):
             self._stage = "menu"
             self._sel = 0
         self._dirty = True
+        self._needs_full = True
 
 
 class PastSessionsScreen(ScrollableListScreen):

@@ -14,7 +14,7 @@ def list_sessions():
 
 @bp.post("/")
 def create_session():
-    data = request.get_json(force=True)
+    data = request.get_json(silent=True) or {}
     row_id = execute(
         """
         INSERT INTO sessions(name, location, latitude, longitude)

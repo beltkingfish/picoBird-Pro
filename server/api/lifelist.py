@@ -4,7 +4,7 @@ import csv
 import io
 import logging
 from flask import Blueprint, request, jsonify
-from server.database import fetchall, fetchone, execute
+from server.database import fetchall, fetchone, execute, get_db
 from server.api._validation import clamp_int, MAX_PAGE
 
 log = logging.getLogger(__name__)
@@ -81,41 +81,48 @@ def import_csv():
                     return (row[key] or "").strip()
         return ""
 
+    # Preload taxonomy + existing life list once, instead of per-row queries
+    # (a real eBird export is hundreds-to-thousands of rows).
+    sci_to_code = {}
+    common_to_code = {}
+    for sp in fetchall("SELECT species_code, sci_name, common_name FROM species"):
+        if sp["sci_name"]:
+            sci_to_code[sp["sci_name"].lower()] = sp["species_code"]
+        if sp["common_name"]:
+            common_to_code[sp["common_name"].lower()] = sp["species_code"]
+    existing = {
+        r["species_code"]
+        for r in fetchall("SELECT species_code FROM lifelist")
+    }
+
+    to_insert = []
+    seen = set()
     for row in reader:
         sci    = pick(row, "scientific name", "sci_name", "scientific_name")
         common = pick(row, "common name", "common_name", "species")
         if not sci and not common:
             continue
 
-        match = None
-        if sci:
-            match = fetchone(
-                "SELECT species_code FROM species WHERE sci_name = ? COLLATE NOCASE",
-                (sci,),
-            )
-        if not match and common:
-            match = fetchone(
-                "SELECT species_code FROM species WHERE common_name = ? COLLATE NOCASE",
-                (common,),
-            )
-        if not match:
+        code = sci_to_code.get(sci.lower()) if sci else None
+        if not code and common:
+            code = common_to_code.get(common.lower())
+        if not code:
             unmatched += 1
             continue
 
-        code = match["species_code"]
-        exists = fetchone("SELECT 1 FROM lifelist WHERE species_code = ?", (code,))
-        if exists:
+        if code in existing or code in seen:
             skipped += 1
             continue
-        try:
-            execute(
+        seen.add(code)
+        to_insert.append((code,))
+        added += 1
+
+    if to_insert:
+        with get_db() as conn:
+            conn.executemany(
                 "INSERT OR IGNORE INTO lifelist(species_code) VALUES(?)",
-                (code,),
+                to_insert,
             )
-            added += 1
-        except Exception as exc:
-            log.warning("lifelist import insert failed for %s: %s", code, exc)
-            unmatched += 1
 
     return jsonify({"added": added, "skipped": skipped, "unmatched": unmatched})
 

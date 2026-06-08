@@ -58,7 +58,7 @@ class ObserveScreen(Screen):
         d = self.ui.display
         idx = self._off + vis_i
         y = LIST_Y + vis_i * ROW_H
-        d.fill_rect(0, y, 320, ROW_H, *C_BG)
+        d.fill_rect(0, y - 1, 320, ROW_H, *C_BG)
         if idx >= len(self._species):
             return
         fg = C_SEL if idx == self._sel else C_FG
