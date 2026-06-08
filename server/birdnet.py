@@ -86,7 +86,9 @@ def analyze_clip(
             # which raises "Columns must be same length as key" when no birds
             # were detected. Treat that as a clean "no detections" result.
             err = (result.stderr or "") + (result.stdout or "")
-            if "Columns must be same length" in err or "species_name" in err:
+            # Only the specific empty-results writer crash is benign; matching the
+            # broad "species_name" token would silently swallow unrelated failures.
+            if "Columns must be same length" in err:
                 return []
             raise RuntimeError("BirdNET failed: {}".format(err[:500]))
 

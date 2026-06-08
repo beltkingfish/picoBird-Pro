@@ -44,7 +44,7 @@ def list_observations():
 @bp.post("/")
 def add_observation():
     """POST /api/observations/"""
-    data = request.get_json(force=True)
+    data = request.get_json(silent=True) or {}
     required = ("species_code",)
     for field in required:
         if field not in data:
@@ -87,7 +87,7 @@ def get_observation(obs_id: int):
 
 @bp.patch("/<int:obs_id>")
 def update_observation(obs_id: int):
-    data = request.get_json(force=True)
+    data = request.get_json(silent=True) or {}
     fields = []
     values = []
     # NOTE: column names here come ONLY from this hardcoded whitelist — never

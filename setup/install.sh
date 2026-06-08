@@ -257,9 +257,9 @@ if [ ! -f "$PROJECT_DIR/venv/bin/python" ]; then
 fi
 "$PROJECT_DIR/venv/bin/pip" install --upgrade pip -q
 "$PROJECT_DIR/venv/bin/pip" install \
-    flask>=3.0 \
-    requests>=2.31 \
-    gunicorn>=21.2 \
+    "flask>=3.0" \
+    "requests>=2.31" \
+    "gunicorn>=21.2" \
     Pillow -q
 echo "    Done."
 

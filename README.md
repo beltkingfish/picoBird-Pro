@@ -354,6 +354,24 @@ sudo git -C /opt/picobird-pro-src pull && sudo systemctl restart picobird-pro
 
 ---
 
+## Development
+
+### Running the tests
+
+The server has a pytest suite covering search (incl. region filtering),
+settings, observations, sessions, and life-list CSV import. It uses an isolated
+temp SQLite DB and mocks the eBird API, so no hardware or network is needed:
+
+```bash
+pip install -r server/requirements-dev.txt
+pytest
+```
+
+CI runs the same suite on every push and pull request (Python 3.11 and 3.12) via
+`.github/workflows/ci.yml`.
+
+---
+
 ## License
 
 MIT

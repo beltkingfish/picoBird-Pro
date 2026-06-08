@@ -33,8 +33,13 @@ def search():
 
     fts_q = " ".join(f"{w}*" for w in q.split())
 
+    # Only filter by region if the cache is actually populated — a set region
+    # with an empty region_species table would otherwise blank every search.
     region_row = fetchone("SELECT value FROM settings WHERE key='region'")
-    region_active = bool(region_row)
+    region_active = False
+    if region_row:
+        cnt = fetchone("SELECT COUNT(*) AS n FROM region_species")
+        region_active = bool(cnt and cnt["n"])
 
     if region_active:
         rows = fetchall(
