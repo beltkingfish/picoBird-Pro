@@ -28,8 +28,12 @@ PIN_RST  = 17
 PIN_BUSY = 24
 PIN_CS   = 8
 
-WIDTH  = 296
-HEIGHT = 128
+WIDTH  = 296   # landscape width (displayed)
+HEIGHT = 128   # landscape height (displayed)
+
+# SSD1680 RAM is portrait: 128 sources × 296 gates
+_RAM_W = HEIGHT  # 128 source lines
+_RAM_H = WIDTH   # 296 gate lines
 
 # Commands
 _DRIVER_OUTPUT     = 0x01
@@ -125,14 +129,14 @@ class EPD:
         self._wait_busy()
 
         self._cmd(_DRIVER_OUTPUT)
-        self._data(0x27)  # (HEIGHT - 1) & 0xFF
-        self._data(0x01)  # (HEIGHT - 1) >> 8
+        self._data((_RAM_H - 1) & 0xFF)  # 295 & 0xFF = 0x27
+        self._data((_RAM_H - 1) >> 8)    # 295 >> 8   = 0x01
         self._data(0x00)
 
         self._cmd(_DATA_ENTRY)
         self._data(0x03)  # X increment, Y increment
 
-        self._set_window(0, 0, WIDTH - 1, HEIGHT - 1)
+        self._set_window(0, 0, _RAM_W - 1, _RAM_H - 1)
 
         self._cmd(_BORDER_WAVEFORM)
         self._data(0x05)
@@ -166,7 +170,7 @@ class EPD:
 
     def display(self, image_bytes: bytes):
         """Push a full 296x128 1-bit image (packed bytes, 0=black, 1=white)."""
-        self._set_window(0, 0, WIDTH - 1, HEIGHT - 1)
+        self._set_window(0, 0, _RAM_W - 1, _RAM_H - 1)
         self._set_cursor(0, 0)
         self._cmd(_WRITE_RAM_BW)
         self._data(image_bytes)
@@ -177,7 +181,7 @@ class EPD:
 
     def clear(self, white: bool = True):
         fill = 0xFF if white else 0x00
-        buf  = bytes([fill] * (WIDTH * HEIGHT // 8))
+        buf  = bytes([fill] * (_RAM_W * _RAM_H // 8))
         self.display(buf)
 
     def sleep(self):

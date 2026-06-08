@@ -239,9 +239,13 @@ def render_image() -> Image.Image:
 
 
 def image_to_bytes(img: Image.Image) -> bytes:
-    """Convert PIL 1-bit image to packed bytes for the EPD driver."""
-    # EPD expects MSB-first, 0=black 1=white
-    return img.tobytes()
+    """Convert PIL 1-bit landscape image to packed bytes for the EPD driver.
+
+    The SSD1680 RAM is portrait (128 sources × 296 gates).  Rotate the
+    296×128 landscape render 90° CCW so it becomes 128×296 before packing.
+    """
+    portrait = img.rotate(90, expand=True)
+    return portrait.tobytes()
 
 
 # ---------------------------------------------------------------------------
@@ -272,6 +276,7 @@ def render_once() -> bool:
     log.info("Initialising e-ink display...")
     epd.init()
     try:
+        epd.clear()  # wipe any stale/partial image before drawing
         img = render_image()
         epd.display(image_to_bytes(img))
         log.info("Single frame displayed")

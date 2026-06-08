@@ -31,17 +31,42 @@ class SpeciesDetailScreen(Screen):
         self._common = species.get("common_name",  species.get("comName", "Unknown"))
         self._sci    = species.get("sci_name",     species.get("sciName", ""))
         self._family = species.get("family_name",  species.get("familyComName", ""))
-        self._sel    = 0
-        self._dirty  = True
-        self._msg    = ""
+        self._sel       = 0
+        self._last_sel  = 0
+        self._dirty     = True
+        self._needs_full = True
+        self._msg       = ""
         self._msg_color = C_DIM
+        # Precompute action menu Y start (depends on name length and family presence).
+        base = 32 if len(self._common) > 44 else 22
+        self._action_y = base + 6 + 14 + (14 if self._family else 0) + 16 + 6 + 14 + 8
 
     def on_enter(self):
-        self._dirty = True
+        self._dirty      = True
+        self._needs_full = True
+
+    def _draw_action_row(self, i):
+        d = self.ui.display
+        action = ACTIONS[i]
+        ay = self._action_y + i * 22
+        if i == self._sel:
+            d.fill_rect(0, ay - 2, 320, 20, *C_SEL_BG)
+            d.text("> " + action, 10, ay, fg=C_SEL)
+        else:
+            d.fill_rect(0, ay - 2, 320, 20, *C_BG)
+            d.text("  " + action, 10, ay, fg=C_FG)
 
     def draw(self):
         if not self._dirty:
             return
+
+        if not self._needs_full:
+            self._draw_action_row(self._last_sel)
+            self._draw_action_row(self._sel)
+            self._last_sel = self._sel
+            self._dirty = False
+            return
+
         d = self.ui.display
         d.fill(*C_BG)
 
@@ -96,7 +121,9 @@ class SpeciesDetailScreen(Screen):
             d.text(self._msg[:50], 4, 288, fg=self._msg_color)
 
         d.text("L=quick-log  Enter=select  Esc=back", 4, 306, fg=C_DIM)
-        self._dirty = False
+        self._last_sel   = self._sel
+        self._needs_full = False
+        self._dirty      = False
 
     def on_key(self, state, key):
         if state != PRESSED:
@@ -106,10 +133,14 @@ class SpeciesDetailScreen(Screen):
         elif key == ord('l') or key == ord('L'):
             self._quick_log()
         elif key == KEY_UP:
+            self._last_sel = self._sel
             self._sel = (self._sel - 1) % len(ACTIONS)
+            self._needs_full = False
             self._dirty = True
         elif key == KEY_DOWN:
+            self._last_sel = self._sel
             self._sel = (self._sel + 1) % len(ACTIONS)
+            self._needs_full = False
             self._dirty = True
         elif key == KEY_ENTER:
             if self._sel == 0:
@@ -135,4 +166,5 @@ class SpeciesDetailScreen(Screen):
         except Exception as e:
             self._msg = str(e)[:48]
             self._msg_color = C_ERR
-        self._dirty = True
+        self._dirty      = True
+        self._needs_full = True

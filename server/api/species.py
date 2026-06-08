@@ -13,7 +13,7 @@ log = logging.getLogger(__name__)
 
 bp = Blueprint("species", __name__)
 
-PAGE_SIZE = 20
+PAGE_SIZE = 10
 
 
 @bp.get("/search")
@@ -21,8 +21,9 @@ def search():
     """
     GET /api/species/search?q=robin&page=0
 
-    Searches local FTS index first; falls back to eBird taxonomy if the local
-    DB has no species loaded yet.
+    Searches local FTS index; when a region filter is active (set via
+    PATCH /api/settings/) results are restricted to species ever recorded
+    in that region.
     """
     q    = request.args.get("q", "").strip()
     page = clamp_int(request.args.get("page"), 0, 0, MAX_PAGE)
@@ -30,23 +31,50 @@ def search():
     if not q:
         return jsonify({"results": [], "total": 0, "page": page})
 
-    # FTS search
     fts_q = " ".join(f"{w}*" for w in q.split())
-    rows = fetchall(
-        """
-        SELECT s.species_code, s.common_name, s.sci_name, s.family_name
-        FROM species_fts f
-        JOIN species s ON s.species_code = f.species_code
-        WHERE species_fts MATCH ?
-        ORDER BY rank
-        LIMIT ? OFFSET ?
-        """,
-        (fts_q, PAGE_SIZE, page * PAGE_SIZE),
-    )
-    total_rows = fetchone(
-        "SELECT COUNT(*) AS n FROM species_fts WHERE species_fts MATCH ?",
-        (fts_q,)
-    )
+
+    region_row = fetchone("SELECT value FROM settings WHERE key='region'")
+    region_active = bool(region_row)
+
+    if region_active:
+        rows = fetchall(
+            """
+            SELECT s.species_code, s.common_name, s.sci_name, s.family_name
+            FROM species_fts f
+            JOIN species s ON s.species_code = f.species_code
+            JOIN region_species r ON r.species_code = s.species_code
+            WHERE species_fts MATCH ?
+            ORDER BY rank
+            LIMIT ? OFFSET ?
+            """,
+            (fts_q, PAGE_SIZE, page * PAGE_SIZE),
+        )
+        total_rows = fetchone(
+            """
+            SELECT COUNT(*) AS n
+            FROM species_fts f
+            JOIN region_species r ON r.species_code = f.species_code
+            WHERE species_fts MATCH ?
+            """,
+            (fts_q,),
+        )
+    else:
+        rows = fetchall(
+            """
+            SELECT s.species_code, s.common_name, s.sci_name, s.family_name
+            FROM species_fts f
+            JOIN species s ON s.species_code = f.species_code
+            WHERE species_fts MATCH ?
+            ORDER BY rank
+            LIMIT ? OFFSET ?
+            """,
+            (fts_q, PAGE_SIZE, page * PAGE_SIZE),
+        )
+        total_rows = fetchone(
+            "SELECT COUNT(*) AS n FROM species_fts WHERE species_fts MATCH ?",
+            (fts_q,),
+        )
+
     total = total_rows["n"] if total_rows else 0
 
     return jsonify({

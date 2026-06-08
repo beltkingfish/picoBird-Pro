@@ -50,6 +50,12 @@ def species_list(region: str = "world") -> list[dict]:
     return _get("/ref/taxonomy/ebird", {"fmt": "json", "locale": "en"})
 
 
+def region_species_list(region_code: str) -> list[str]:
+    """Return all species codes ever recorded in region_code (eBird spplist)."""
+    data = _get(f"/product/spplist/{region_code}")
+    return data if isinstance(data, list) else []
+
+
 def species_info(species_code: str) -> dict | None:
     """Return the taxonomy entry for one species code."""
     data = _get("/ref/taxonomy/ebird", {"fmt": "json", "species": species_code})

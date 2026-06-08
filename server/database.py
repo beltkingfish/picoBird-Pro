@@ -79,6 +79,17 @@ BEGIN
     ON CONFLICT(species_code) DO UPDATE
         SET obs_count = obs_count + 1;
 END;
+
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS region_species (
+    species_code TEXT NOT NULL,
+    region_code  TEXT NOT NULL,
+    PRIMARY KEY (species_code, region_code)
+);
 """
 
 

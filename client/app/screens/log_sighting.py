@@ -33,15 +33,48 @@ class LogSightingScreen(Screen):
         self._name   = common_name
         self._count  = "1"
         self._notes  = ""
-        self._field  = FIELD_COUNT
-        self._dirty  = True
-        self._msg    = ""
-        self._msg_color = C_DIM
-        self._done   = False
-        self._close_at = None   # ticks_ms deadline to auto-close after success
+        self._field      = FIELD_COUNT
+        self._last_field = FIELD_COUNT
+        self._dirty      = True
+        self._needs_full = True
+        self._msg        = ""
+        self._msg_color  = C_DIM
+        self._done       = False
+        self._close_at   = None   # ticks_ms deadline to auto-close after success
 
     def on_enter(self):
-        self._dirty = True
+        self._dirty      = True
+        self._needs_full = True
+
+    # Y positions for each field row (used by partial repaint).
+    _FIELD_Y = {FIELD_COUNT: 42, FIELD_NOTES: 58, FIELD_LOG: 82, FIELD_CANCEL: 106}
+
+    def _draw_field_row(self, field):
+        d = self.ui.display
+        if field == FIELD_COUNT:
+            y = 42
+            d.fill_rect(0, y - 1, 320, 14, *C_BG)
+            d.text("Count:", 4, y, fg=C_DIM)
+            fg = C_CURSOR if self._field == FIELD_COUNT else C_FG
+            d.text(self._count + ("_" if self._field == FIELD_COUNT else ""), 50, y, fg=fg)
+        elif field == FIELD_NOTES:
+            y = 58
+            d.fill_rect(0, y - 1, 320, 14, *C_BG)
+            d.text("Notes:", 4, y, fg=C_DIM)
+            fg = C_CURSOR if self._field == FIELD_NOTES else C_FG
+            shown = self._notes[-30:] if len(self._notes) > 30 else self._notes
+            d.text(shown + ("_" if self._field == FIELD_NOTES else ""), 50, y, fg=fg)
+        elif field in (FIELD_LOG, FIELD_CANCEL):
+            labels = {FIELD_LOG: "Log It", FIELD_CANCEL: "Cancel"}
+            base_y = {FIELD_LOG: 82, FIELD_CANCEL: 106}
+            for f, label in labels.items():
+                y = base_y[f]
+                if self._field == f:
+                    d.fill_rect(0, y - 2, 320, 20, *C_SEL_BG)
+                    d.text("> " + label, 10, y, fg=C_SEL)
+                else:
+                    d.fill_rect(0, y - 2, 320, 20, *C_BG)
+                    d.text("  " + label, 10, y, fg=C_FG)
 
     def draw(self):
         # Non-blocking auto-close after a successful log (no sleep in handlers).
@@ -52,6 +85,15 @@ class LogSightingScreen(Screen):
             return
         if not self._dirty:
             return
+
+        if not self._needs_full:
+            # Only focus moved between fields — repaint old and new field rows.
+            self._draw_field_row(self._last_field)
+            self._draw_field_row(self._field)
+            self._last_field = self._field
+            self._dirty = False
+            return
+
         d = self.ui.display
         d.fill(*C_BG)
 
@@ -88,7 +130,9 @@ class LogSightingScreen(Screen):
             d.text(self._msg[:50], 4, 140, fg=self._msg_color)
 
         d.text("Up/Dn=field  Enter=next  Esc=back", 4, 306, fg=C_DIM)
-        self._dirty = False
+        self._last_field = self._field
+        self._needs_full = False
+        self._dirty      = False
 
     def on_key(self, state, key):
         if state != PRESSED or self._done:
@@ -99,12 +143,16 @@ class LogSightingScreen(Screen):
             return
 
         if key == KEY_UP:
+            self._last_field = self._field
             self._field = (self._field - 1) % 4
+            self._needs_full = False
             self._dirty = True
             return
 
         if key == KEY_DOWN:
+            self._last_field = self._field
             self._field = (self._field + 1) % 4
+            self._needs_full = False
             self._dirty = True
             return
 
@@ -114,16 +162,20 @@ class LogSightingScreen(Screen):
             elif self._field == FIELD_CANCEL:
                 self.ui.stack.pop()
             else:
+                self._last_field = self._field
                 self._field = (self._field + 1) % 4
+                self._needs_full = False
                 self._dirty = True
             return
 
         if key == KEY_BACKSPACE:
             if self._field == FIELD_COUNT and self._count:
                 self._count = self._count[:-1]
+                self._needs_full = True
                 self._dirty = True
             elif self._field == FIELD_NOTES and self._notes:
                 self._notes = self._notes[:-1]
+                self._needs_full = True
                 self._dirty = True
             return
 
@@ -131,9 +183,11 @@ class LogSightingScreen(Screen):
             ch = chr(key)
             if self._field == FIELD_COUNT and ch.isdigit() and len(self._count) < 4:
                 self._count += ch
+                self._needs_full = True
                 self._dirty = True
             elif self._field == FIELD_NOTES and len(self._notes) < 60:
                 self._notes += ch
+                self._needs_full = True
                 self._dirty = True
 
     def _submit(self):

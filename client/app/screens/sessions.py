@@ -27,17 +27,20 @@ MAX_NAME = 40
 class SessionsScreen(Screen):
     def __init__(self, ui):
         super().__init__(ui)
-        self._sel    = 0
-        self._dirty  = True
-        self._stage  = "menu"   # menu | naming | summary
-        self._name   = ""
-        self._msg    = ""
-        self._msg_color = C_DIM
-        self._summary = None
+        self._sel        = 0
+        self._last_sel   = 0
+        self._dirty      = True
+        self._needs_full = True
+        self._stage      = "menu"   # menu | naming | summary
+        self._name       = ""
+        self._msg        = ""
+        self._msg_color  = C_DIM
+        self._summary    = None
 
     def on_enter(self):
-        self._stage = "menu"
-        self._dirty = True
+        self._stage      = "menu"
+        self._dirty      = True
+        self._needs_full = True
 
     # ── Menu options depend on whether a session is active ────────────────────
     def _menu(self):
@@ -46,9 +49,30 @@ class SessionsScreen(Screen):
         return ["Start New Session", "Past Sessions"]
 
     # ── Drawing ───────────────────────────────────────────────────────────────
+    def _draw_menu_row(self, i):
+        d = self.ui.display
+        menu = self._menu()
+        if i >= len(menu):
+            return
+        y = 56 + i * 22
+        if i == self._sel:
+            d.fill_rect(0, y - 2, 320, 20, *C_SEL_BG)
+            d.text("> " + menu[i], 10, y, fg=C_SEL_FG)
+        else:
+            d.fill_rect(0, y - 2, 320, 20, *C_BG)
+            d.text("  " + menu[i], 10, y, fg=C_FG)
+
     def draw(self):
         if not self._dirty:
             return
+
+        if self._stage == "menu" and not self._needs_full:
+            self._draw_menu_row(self._last_sel)
+            self._draw_menu_row(self._sel)
+            self._last_sel = self._sel
+            self._dirty = False
+            return
+
         d = self.ui.display
         d.fill(*C_BG)
         d.text("Sessions", 10, 8, fg=C_HEADER)
@@ -62,16 +86,13 @@ class SessionsScreen(Screen):
 
         if self._stage == "menu":
             menu = self._menu()
-            for i, item in enumerate(menu):
-                y = 56 + i * 22
-                if i == self._sel:
-                    d.fill_rect(0, y - 2, 320, 20, *C_SEL_BG)
-                    d.text("> " + item, 10, y, fg=C_SEL_FG)
-                else:
-                    d.text("  " + item, 10, y, fg=C_FG)
+            for i in range(len(menu)):
+                self._draw_menu_row(i)
             if self._msg:
                 d.text(self._msg[:50], 10, 150, fg=self._msg_color)
             d.text("Up/Dn=nav  Enter=select  Esc=back", 4, 306, fg=C_DIM)
+            self._last_sel   = self._sel
+            self._needs_full = False
 
         elif self._stage == "naming":
             d.text("New session name:", 10, 56, fg=C_FG)
@@ -117,11 +138,15 @@ class SessionsScreen(Screen):
         if key == KEY_ESC and state == PRESSED:
             self.ui.stack.pop()
         elif key == KEY_UP:
-            self._sel = (self._sel - 1) % len(menu)
-            self._dirty = True
+            self._last_sel   = self._sel
+            self._sel        = (self._sel - 1) % len(menu)
+            self._needs_full = False
+            self._dirty      = True
         elif key == KEY_DOWN:
-            self._sel = (self._sel + 1) % len(menu)
-            self._dirty = True
+            self._last_sel   = self._sel
+            self._sel        = (self._sel + 1) % len(menu)
+            self._needs_full = False
+            self._dirty      = True
         elif key == KEY_ENTER and state == PRESSED:
             self._activate(menu[self._sel])
 
@@ -141,14 +166,16 @@ class SessionsScreen(Screen):
     # ── Actions ─────────────────────────────────────────────────────────────
     def _activate(self, item):
         if item == "Start New Session":
-            self._name = ""
-            self._stage = "naming"
-            self._dirty = True
+            self._name       = ""
+            self._stage      = "naming"
+            self._dirty      = True
+            self._needs_full = True
         elif item == "End Active Session":
             self._end_session()
         elif item == "Past Sessions":
             self.ui.stack.push(PastSessionsScreen(self.ui))
-            self._dirty = True
+            self._dirty      = True
+            self._needs_full = True
 
     def _start_session(self):
         name = self._name.strip() or "Session"
