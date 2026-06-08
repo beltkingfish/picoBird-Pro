@@ -15,6 +15,11 @@ seconds with a live dashboard:
   └─────────────────────────────────────┘
 """
 
+# Defer annotation evaluation so the `Image.Image` return/param hints don't need
+# PIL imported at module load — the server (and its test suite) must import this
+# module on machines without Pillow / e-ink hardware.
+from __future__ import annotations
+
 import os
 import re
 import time
