@@ -1,0 +1,5 @@
+# Development / test dependencies (in addition to requirements.txt).
+# PIL / spidev / RPi.GPIO are not needed: the server degrades gracefully
+# without them, so the API test suite runs on any machine.
+-r requirements.txt
+pytest>=8.0
