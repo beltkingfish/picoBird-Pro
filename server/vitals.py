@@ -240,8 +240,17 @@ def render_image() -> Image.Image:
 
 def image_to_bytes(img: Image.Image) -> bytes:
     """Convert PIL 1-bit image to packed bytes for the EPD driver."""
-    # EPD expects MSB-first, 0=black 1=white
-    return img.tobytes()
+    # PIL mode "1" rows may be padded to a word boundary internally.
+    # Strip padding so the EPD gets exactly (width // 8) bytes per row.
+    raw = img.tobytes()
+    row_bytes = (img.width + 7) // 8
+    row_stride = len(raw) // img.height
+    if row_stride == row_bytes:
+        return raw
+    buf = bytearray()
+    for y in range(img.height):
+        buf += raw[y * row_stride : y * row_stride + row_bytes]
+    return bytes(buf)
 
 
 # ---------------------------------------------------------------------------
