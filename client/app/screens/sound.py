@@ -14,7 +14,9 @@ class SoundScreen(Screen):
     def __init__(self, ui):
         super().__init__(ui)
         self._sel         = 0
+        self._last_sel    = 0
         self._dirty       = True
+        self._needs_full  = True
         self._device      = None   # None means not checked yet; "" means absent
         self._state       = "menu"   # menu | capturing | results | passive_msg | error
         self._msg         = ""
@@ -23,7 +25,8 @@ class SoundScreen(Screen):
         self._scroll_off  = 0
 
     def on_enter(self):
-        self._dirty = True
+        self._dirty      = True
+        self._needs_full = True
         self._check_device()
 
     # ── Data ──────────────────────────────────────────────────────────────────
@@ -90,9 +93,29 @@ class SoundScreen(Screen):
 
     # ── Drawing ───────────────────────────────────────────────────────────────
 
+    def _draw_menu_row(self, i):
+        d = self.ui.display
+        passive_label = "Passive: " + ("ON" if self._passive_on else "off")
+        label = MENU[i] if i != 2 else passive_label
+        y = 56 + i * 20
+        if i == self._sel:
+            d.fill_rect(0, y - 2, T.WIDTH, 18, *T.C_SEL_BG)
+            d.text("> " + label, 10, y, fg=T.C_SEL_FG)
+        else:
+            d.fill_rect(0, y - 2, T.WIDTH, 18, *T.C_BG)
+            d.text("  " + label, 10, y, fg=T.C_FG)
+
     def draw(self):
         if not self._dirty:
             return
+
+        if self._state == "menu" and not self._needs_full and self._device:
+            self._draw_menu_row(self._last_sel)
+            self._draw_menu_row(self._sel)
+            self._last_sel = self._sel
+            self._dirty = False
+            return
+
         d = self.ui.display
         d.fill(*T.C_BG)
         d.text("Sound ID", 10, 8, fg=T.C_HEADER)
@@ -107,15 +130,10 @@ class SoundScreen(Screen):
             d.text("then re-open this screen", 10, 74, fg=T.C_DIM)
         elif self._state == "menu":
             d.text("Mic: " + self._device[:36], 10, 34, fg=T.C_DIM)
-            passive_label = "Passive: " + ("ON" if self._passive_on else "off")
-            for i, item in enumerate(MENU):
-                label = item if i != 2 else passive_label
-                y = 56 + i * 20
-                if i == self._sel:
-                    d.fill_rect(0, y - 2, T.WIDTH, 18, *T.C_SEL_BG)
-                    d.text("> " + label, 10, y, fg=T.C_SEL_FG)
-                else:
-                    d.text("  " + label, 10, y, fg=T.C_FG)
+            for i in range(len(MENU)):
+                self._draw_menu_row(i)
+            self._last_sel   = self._sel
+            self._needs_full = False
         elif self._state == "capturing":
             d.text(self._msg, 10, 60, fg=T.C_WARN)
             d.text("Please wait...", 10, 76, fg=T.C_DIM)
@@ -163,31 +181,39 @@ class SoundScreen(Screen):
 
         if self._state in ("error", "passive_msg"):
             if state == PRESSED:
-                self._state = "menu"
-                self._dirty = True
+                self._state      = "menu"
+                self._dirty      = True
+                self._needs_full = True
             return
 
         if self._state == "results":
             if key == KEY_ESC and state == PRESSED:
-                self._state = "menu"
-                self._dirty = True
+                self._state      = "menu"
+                self._dirty      = True
+                self._needs_full = True
             elif key == KEY_UP and self._scroll_off > 0:
                 self._scroll_off -= 1
-                self._dirty = True
+                self._dirty      = True
+                self._needs_full = True
             elif key == KEY_DOWN and self._scroll_off < len(self._results) - 1:
                 self._scroll_off += 1
-                self._dirty = True
+                self._dirty      = True
+                self._needs_full = True
             return
 
         if self._state == "menu":
             if key == KEY_ESC and state == PRESSED:
                 self.ui.stack.pop()
             elif key == KEY_UP:
-                self._sel = (self._sel - 1) % len(MENU)
-                self._dirty = True
+                self._last_sel   = self._sel
+                self._sel        = (self._sel - 1) % len(MENU)
+                self._needs_full = False
+                self._dirty      = True
             elif key == KEY_DOWN:
-                self._sel = (self._sel + 1) % len(MENU)
-                self._dirty = True
+                self._last_sel   = self._sel
+                self._sel        = (self._sel + 1) % len(MENU)
+                self._needs_full = False
+                self._dirty      = True
             elif key == KEY_ENTER and state == PRESSED:
                 self._activate()
 

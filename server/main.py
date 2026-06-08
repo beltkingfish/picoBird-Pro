@@ -9,6 +9,7 @@ from server.api.sessions import bp as sessions_bp
 from server.api.lifelist import bp as lifelist_bp
 from server.api.sound import bp as sound_bp
 from server.api.vitals import bp as vitals_bp
+from server.api.settings import bp as settings_bp
 
 VERSION = "1.1.0"
 
@@ -24,6 +25,7 @@ def create_app() -> Flask:
     app.register_blueprint(lifelist_bp,     url_prefix="/api/lifelist")
     app.register_blueprint(sound_bp,        url_prefix="/api/sound")
     app.register_blueprint(vitals_bp,       url_prefix="/api/vitals")
+    app.register_blueprint(settings_bp,    url_prefix="/api/settings")
 
     @app.get("/api/ping")
     def ping():
